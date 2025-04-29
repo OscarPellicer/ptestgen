@@ -20,17 +20,17 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 # Define models for each provider (using requested models or sensible defaults)
 # Check provider documentation for the latest/most appropriate model names.
 GENERATOR_MODEL_MAP = {
-    "openai": os.getenv("OPENAI_GENERATOR_MODEL", "gpt-4o-mini"),
+    "openai": os.getenv("OPENAI_GENERATOR_MODEL", "gpt-4o"),
     "google": os.getenv("GOOGLE_GENERATOR_MODEL", "gemini-2.5-pro"),
-    "anthropic": os.getenv("ANTHROPIC_GENERATOR_MODEL", "claude-3-7-sonnet"),
+    "anthropic": os.getenv("ANTHROPIC_GENERATOR_MODEL", "claude-3-7-sonnet-latest"),
     "replicate": os.getenv("REPLICATE_GENERATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
     "stub": "stub-generator-model"
 }
 
 REVIEWER_MODEL_MAP = { # Potentially use a cheaper model for review
-    "openai": os.getenv("OPENAI_REVIEWER_MODEL", "gpt-4o-mini"),
+    "openai": os.getenv("OPENAI_REVIEWER_MODEL", "gpt-4o"),
     "google": os.getenv("GOOGLE_REVIEWER_MODEL", "gemini-2.5-pro"),
-    "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-3-7-sonnet"), 
+    "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-3-7-sonnet-latest"), 
     "replicate": os.getenv("REPLICATE_REVIEWER_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
     "stub": "stub-reviewer-model"
 }
@@ -70,7 +70,7 @@ DEFAULT_LANGUAGE = "Spanish"
 # --- Prompting ---
 # Basic prompt templates (can be refined)
 GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context. Base the questions strictly on the provided context. Do not add a period at the end of the correct answer nor at the end of the distractors.
+You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context. Base the questions strictly on the provided context. Try to generate at least one question for each topic that is covered in the context.
 For each question, generate:
 - The question text.
 - The correct answer.
@@ -92,12 +92,12 @@ Output the question as a single JSON object with keys: "text" (string), "correct
 """
 
 REVIEW_SYSTEM_PROMPT = """
-You are an AI assistant expert in evaluating the quality of multiple-choice questions and improving them if needed.
+You are an AI assistant expert in evaluating the quality of multiple-choice questions and improving them if needed. You must also check that the correct answer cannot be easily differentiated from the distractors.
 Review the following question based on clarity, correctness, plausibility of distractors, grammatical correctness, and adherence to good question design principles.
 Take special care to ensure that all options are of similar length, and that the level of complexity of the wrong answers is similar to that of the correct answer.
-Check that the correct answer and the distractors do not end with a period.
+Make sure that neither the correct answer nor the distractors end with a period.
 Provide scores for difficulty and quality between 0.0 (very poor) and 1.0 (excellent).
-Finally, if needed, provide the corrected question (where all the comments from the review have been applied) in the same JSON format as the input question, under the key "reviewed_question".
+Finally, if changes are needed, provide the corrected question (where all the comments from the review have been applied) in the same JSON format as the input question, under the key "reviewed_question".
 
 Input Question (JSON format):
 {question_json}

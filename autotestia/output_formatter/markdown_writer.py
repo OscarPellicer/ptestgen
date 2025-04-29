@@ -13,11 +13,10 @@ def write_questions_to_markdown(questions: List[Question], output_file: str):
     with open(output_file, 'w', encoding='utf-8-sig') as f:
         # Write Header
         f.write("# AutoTestIA Generated Questions for Review\n\n")
-        f.write("Please review the following questions. You can edit the text directly in this file.\n")
-        f.write("Mark questions for deletion by changing `DELETE=FALSE` to `DELETE=TRUE`.\n") # Updated instruction slightly
-        f.write("The option marked with `(Correct: YES)` is the correct answer. Ensure exactly one option has `(Correct: YES)`.\n") # Updated instruction slightly
-        f.write("Ensure the format remains consistent for later processing.\n")
-        # No trailing newline needed here before the first separator
+        f.write("""Please review the following questions.
+You can edit the text directly in this file, and remove any questions that are not interesting.
+The correct answer is always in the first position, and the others are all false.
+Ensure the format remains consistent for later processing.\n""")
 
         # Write Questions
         for i, q in enumerate(questions):
@@ -29,7 +28,6 @@ def write_questions_to_markdown(questions: List[Question], output_file: str):
                 f.write("\n\n---\n\n")
 
             f.write(f"## Question {q.id}\n\n")
-            f.write("DELETE=FALSE\n\n") # Deletion marker
 
             # --- Metadata ---
             f.write(f"**Source:** {q.source_material or 'N/A'}\n")
@@ -51,10 +49,10 @@ def write_questions_to_markdown(questions: List[Question], output_file: str):
             # Combine correct answer and distractors
             options_to_display = [(q.correct_answer, True)] + [(d, False) for d in q.distractors]
 
-            f.write("**Options:**\n")
+            f.write("**Options:**\n\n")
             for option_text, is_correct in options_to_display:
-                correct_marker = "YES" if is_correct else "NO"
-                f.write(f"- {option_text} (Correct: {correct_marker})\n")
+                #correct_marker = "YES" if is_correct else "NO"
+                f.write(f"- {option_text}\n")
 
             if q.explanation:
                  f.write(f"\n**Explanation:**\n{q.explanation}\n") # Add blank line before explanation if text/options are present
@@ -83,10 +81,10 @@ def write_questions_to_markdown(questions: List[Question], output_file: str):
 
                 # Display original options (correct answer followed by distractors as stored)
                 orig_options = [(original_correct, True)] + [(d, False) for d in original_distractors]
-                f.write("**Original Question Options:**\n")
+                f.write("**Original Question Options:**\n\n")
                 for opt_text, is_correct in orig_options:
-                    correct_marker = "YES" if is_correct else "NO"
-                    f.write(f"- {opt_text} (Correct: {correct_marker})\n")
+                    # correct_marker = "YES" if is_correct else "NO"
+                    f.write(f"- {opt_text}\n")
 
         # Add a trailing newline for POSIX compatibility
         f.write("\n")
@@ -151,7 +149,6 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
         options_parsed = [] # Temp list: [(text, is_correct_bool)]
         current_multiline_field = None # Tracks 'text', 'explanation'
         multiline_buffer = [] # Accumulates lines for the current field
-        delete_question = False
         parsing_active = True # Flag to stop parsing if original section is hit
 
         for line_num, line in enumerate(lines):
@@ -200,21 +197,8 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
                     break # Found the header for this line
 
             # --- Process based on the identified section or multiline state ---
-
-            # Block Control / ID / Delete
-            if stripped_line.startswith("## Question"):
-                try:
-                    question_data["id"] = int(stripped_line.split(" ")[2])
-                except (IndexError, ValueError):
-                    logging.warning(f"Could not parse ID from '{stripped_line}', will assign later.")
-            elif stripped_line.upper().startswith("DELETE="):
-                 flag = stripped_line.split("=")[-1].strip().upper()
-                 if flag == "TRUE":
-                     delete_question = True
-                     break # Stop processing lines for this block
-
             # Metadata
-            elif stripped_line.startswith("**Source:**"):
+            if stripped_line.startswith("**Source:**"):
                 question_data["source_material"] = stripped_line.replace("**Source:**", "").strip()
             elif stripped_line.startswith("**Image:**"):
                 question_data["image_reference"] = stripped_line.replace("**Image:**", "").strip()
@@ -262,11 +246,6 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
              content = "\n".join(multiline_buffer).strip()
              if current_multiline_field in question_data:
                  question_data[current_multiline_field] = content if content else None
-
-        # --- Post-processing the block ---
-        if delete_question:
-            logging.info(f"Skipping Question ID {question_data.get('id', 'unknown')} (marked for deletion).")
-            continue
 
         # Assign fallback ID if needed
         if question_data["id"] is None:
