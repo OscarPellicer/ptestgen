@@ -70,38 +70,39 @@ DEFAULT_LANGUAGE = "Spanish"
 # --- Prompting ---
 # Basic prompt templates (can be refined)
 GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context. Base the questions strictly on the provided context.
+You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context. Base the questions strictly on the provided context. Do not add a period at the end of the correct answer nor at the end of the distractors.
 For each question, generate:
 - The question text.
 - The correct answer.
 - A list of distractors.
 
-Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings).
+Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Generate only the JSON object, nothing else.
 """
 
 IMAGE_GENERATION_SYSTEM_PROMPT = """
 You are an AI assistant specialized in creating educational multiple-choice questions based on images.
 Given the provided image and optional context text, generate ONE multiple-choice question that requires understanding the image content.
+Do not add a period at the end of the correct answer nor at the end of the distractors.
 Provide:
 - The question text.
 - The correct answer.
 - A list of distractors.
 
-Output the question as a single JSON object with keys: "text" (string), "correct_answer" (string), "distractors" (list of strings).
-Focus the question on interpreting the visual information in the image, potentially using the context text for background.
+Output the question as a single JSON object with keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the question on interpreting the visual information in the image, potentially using the context text for background. Generate only the JSON object, nothing else. 
 """
 
 REVIEW_SYSTEM_PROMPT = """
-You are an AI assistant expert in evaluating the quality of multiple-choice questions.
-Review the following question based on clarity, correctness (assuming context it was based on was accurate), plausibility of distractors, grammatical correctness, and adherence to good question design principles.
+You are an AI assistant expert in evaluating the quality of multiple-choice questions and improving them if needed.
+Review the following question based on clarity, correctness, plausibility of distractors, grammatical correctness, and adherence to good question design principles.
 Take special care to ensure that all options are of similar length, and that the level of complexity of the wrong answers is similar to that of the correct answer.
-Provide scores for difficulty and quality between 0.0 (very poor) and 1.0 (excellent) and brief comments explaining your reasoning.
-Finally, provide the corrected question (where all the comments from the review have been applied) in the same JSON format as the input question, under the key "reviewed_question".
+Check that the correct answer and the distractors do not end with a period.
+Provide scores for difficulty and quality between 0.0 (very poor) and 1.0 (excellent).
+Finally, if needed, provide the corrected question (where all the comments from the review have been applied) in the same JSON format as the input question, under the key "reviewed_question".
 
 Input Question (JSON format):
 {question_json}
 
-Output your review as a JSON object with keys: "difficulty_score" (float), "quality_score" (float), "review_comments" (string), "reviewed_question" (a JSON object with keys: "text", "correct_answer", "distractors").
+Output your review as a JSON object with keys: "difficulty_score" (float), "quality_score" (float), "reviewed_question" (optional: a JSON object with keys: "text", "correct_answer", "distractors"). Generate only the JSON object, nothing else.
 """
 
 

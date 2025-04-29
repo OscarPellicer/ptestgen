@@ -177,7 +177,7 @@ class QuestionGenerator:
         logging.info(f"Generating {num_questions} questions from text using {self.llm_provider} ({self.model_name})...")
         questions = []
         num_distractors = num_options - 1
-        prompt = f"Context:\n{text_content}\n\nGenerate exactly {num_questions} multiple-choice questions based on the context above. Each question should have one correct answer and {num_distractors} distractors. Follow the JSON output format specified in the system prompt. Generate only the JSON object, nothing else. Generate the questions and the answers in the following language: {language}"
+        prompt = f"Context:\n{text_content}\n\nGenerate exactly {num_questions} multiple-choice questions based on the context above. Each question should have one correct answer and {num_distractors} distractors. Generate the questions and the answers in the following language: {language}"
 
         try:
             response_content = None

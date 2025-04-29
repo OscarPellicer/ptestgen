@@ -130,7 +130,7 @@ class QuestionReviewer:
             if expected_type == 'dict' and not isinstance(data, dict):
                  raise ValueError("Expected a JSON object (dict).")
             # Add other type checks if needed (e.g., check keys for reviewer response)
-            if expected_type == 'dict' and not all(k in data for k in ["difficulty_score", "quality_score", "review_comments", "reviewed_question"]):
+            if expected_type == 'dict' and not all(k in data for k in ["difficulty_score", "quality_score", "reviewed_question"]):
                 logging.warning(f"Reviewer response missing some expected keys: {data.keys()}")
                 # Allow partial success if some keys exist? For now, treat as invalid.
                 # raise ValueError("Reviewer JSON response missing expected keys.")

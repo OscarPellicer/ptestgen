@@ -69,9 +69,21 @@ Core pipeline implemented with support for major LLM providers. Text parsing is 
 
 ## Usage
 
+**Generation Mode:**
+
 ```bash
 python main.py <input_material_path> [options]
 ```
+
+Use this mode to generate questions from a source document.
+
+**Resume Mode:**
+
+```bash
+python main.py --resume-from-md <existing_markdown_path> [options]
+```
+
+Use this mode to continue processing from an existing intermediate Markdown file (e.g., after manual review or if the process was interrupted). This skips the initial generation and review steps.
 
 **Examples:**
 
@@ -97,19 +109,38 @@ python main.py <input_material_path> [options]
     python main.py lecture_notes.txt -n 10 --provider anthropic --generator-model claude-3-5-sonnet-20240620
     ```
 
+4.  **Generate only the intermediate Markdown file (no conversion):**
+    ```bash
+    python main.py study_guide.pdf -n 15 -f none -o draft_questions.md
+    ```
+    *   Creates `draft_questions.md` and stops.
+
+5.  **Resume processing from a previously generated/edited Markdown file, converting to GIFT format:**
+    ```bash
+    python main.py --resume-from-md draft_questions.md -f gift
+    ```
+    *   Parses `draft_questions.md`.
+    *   Creates `draft_questions.gift` in the same directory.
+
 **Command Line Options:**
 
-*   `input_material`: Path to the input text file (supports `.txt`, `.md`, `.pdf`, `.docx`, `.pptx`, `.rtf`).
-*   `-i`, `--images`: (Optional) Path(s) to image file(s).
-*   `-n`, `--num-questions`: Number of text-based questions (default: 5).
-*   `-o`, `--output-md`: Path for the intermediate Markdown file (default: `output/questions.md`).
-*   `-f`, `--formats`: Output format(s) (choices: `moodle_xml`, `gift`, `wooclap`, `rexams`, default: `moodle_xml gift`).
-*   `--provider`: LLM provider (choices: `openai`, `google`, `anthropic`, `replicate`, `stub`, default: from `.env` or `stub`).
-*   `--generator-model`: Override default generator model for the provider.
-*   `--reviewer-model`: Override default reviewer model for the provider.
-*   `--use-llm-review` / `--no-use-llm-review`: Enable/disable LLM-based review agent.
-*   `--skip-manual-review`: Skip the pause for manual Markdown editing.
-*   `--extract-doc-images`: [Experimental] Attempt to extract images from documents (feature incomplete).
+*   **Input Control (Mutually Exclusive):**
+    *   `input_material`: Path to the input file (e.g., `.txt`, `.pdf`) for *new generation*.
+    *   `--resume-from-md`: Path to an existing intermediate Markdown file to *resume processing from* (skips generation steps).
+*   `-i`, `--images`: (Optional) Path(s) to image file(s). *Used only with `input_material`.*
+*   `-n`, `--num-questions`: Number of text-based questions (default: 5). *Used only with `input_material`.*
+*   `-o`, `--output-md`: Path for the intermediate Markdown file (default: `output/questions.md`). *Used only with `input_material`.*
+*   `-f`, `--formats`: Output format(s) (choices: `moodle_xml`, `gift`, `wooclap`, `rexams`, `none`. Default: `moodle_xml gift`). Use `none` to only generate/identify the intermediate Markdown file.
+*   **Generation Options (Used only with `input_material`):**
+    *   `--provider`: LLM provider (choices: `openai`, `google`, `anthropic`, `replicate`, `stub`, default: from `.env` or `stub`).
+    *   `--generator-model`: Override default generator model for the provider.
+    *   `--reviewer-model`: Override default reviewer model for the provider.
+    *   `--use-llm-review` / `--no-use-llm-review`: Enable/disable LLM-based review agent.
+    *   `--skip-manual-review`: Skip the pause for manual Markdown editing.
+    *   `--extract-doc-images`: [Experimental] Attempt to extract images from documents.
+    *   `--language`: Language for questions (default: `en`).
+*   **General Options:**
+    *   `--log-level`: Set logging verbosity (choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, default: `WARNING`).
 
 ## Next Steps
 
