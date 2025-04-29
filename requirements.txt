@@ -1,0 +1,28 @@
+# Basic requirements for stubbed version
+# Add LLM SDKs (openai, google-generativeai, anthropic) when implemented
+# Add parsing libraries (pypdf, python-docx, python-pptx, Pillow) when implemented
+# Add Wooclap export library (pandas, openpyxl) when implemented
+
+# LLM SDKs
+openai>=1.0.0
+google-generativeai>=0.4.0
+anthropic>=0.20.0
+replicate>=0.20.0 # Check for latest version
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Parsing Libraries
+pypdf>=4.0.0 # For PDF text extraction
+python-docx>=1.1.0 # For DOCX text extraction
+python-pptx>=0.6.23 # For PPTX text extraction
+striprtf>=0.0.26 # For RTF text extraction
+# Pillow (Needed indirectly by some parsing, and for direct image handling later)
+Pillow>=10.0.0
+
+# Markdown parsing (optional, reading as text is often sufficient)
+# markdown>=3.5
+
+# Wooclap Export (Placeholder - uncomment when needed)
+# pandas>=2.0.0
+# openpyxl>=3.1.0 

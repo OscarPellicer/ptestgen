@@ -1,0 +1,232 @@
+import os
+from typing import List, Dict, Any, Tuple
+import logging
+
+# Placeholder for future PDF/DOCX/PPTX parsing libraries
+# import pypdf
+# import docx
+# from pptx import Presentation
+# from PIL import Image
+
+# Import parsing libraries
+try:
+    import pypdf
+except ImportError:
+    pypdf = None
+    logging.warning("`pypdf` library not found. Install with `pip install pypdf` to enable PDF parsing.")
+
+try:
+    import docx
+except ImportError:
+    docx = None
+    logging.warning("`python-docx` library not found. Install with `pip install python-docx` to enable DOCX parsing.")
+
+try:
+    from pptx import Presentation
+except ImportError:
+    Presentation = None
+    logging.warning("`python-pptx` library not found. Install with `pip install python-pptx` to enable PPTX parsing.")
+
+try:
+    from striprtf.striprtf import rtf_to_text
+except ImportError:
+    rtf_to_text = None
+    logging.warning("`striprtf` library not found. Install with `pip install striprtf` to enable RTF parsing.")
+
+# PIL (Pillow) is still needed for image handling later, but not directly used here yet
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+    # No warning needed here yet, as it's only for explicit image inputs for now
+
+def parse_input_material(file_path: str, extract_images: bool = False) -> Tuple[str, list]:
+    """
+    Parses the input material file and returns its text content.
+    Optionally extracts images found within the document (functionality not implemented yet).
+
+    Args:
+        file_path (str): Path to the input document.
+        extract_images (bool): If True, attempt to extract images from the document
+                               (currently only returns placeholder info). Defaults to False.
+
+    Returns:
+        Tuple[str, list]: A tuple containing:
+            - The extracted text content (str).
+            - A list of extracted image references (currently placeholders or file paths) (list).
+            Returns ("", []) if parsing fails or format is unsupported.
+
+    Raises:
+        FileNotFoundError: If the input file does not exist.
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Input file not found: {file_path}")
+
+    _, extension = os.path.splitext(file_path)
+    extension = extension.lower()
+    text_content = ""
+    image_references = [] # To hold references to extracted images later
+
+    logging.info(f"Attempting to parse '{file_path}' (extension: {extension})")
+
+    try:
+        if extension == ".txt" or extension == ".md": # Treat Markdown as plain text for now
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text_content = f.read()
+            logging.info(f"Successfully parsed {extension} file as plain text.")
+
+        elif extension == ".pdf":
+            if pypdf:
+                try:
+                    reader = pypdf.PdfReader(file_path)
+                    text_parts = []
+                    for i, page in enumerate(reader.pages):
+                        page_text = page.extract_text()
+                        if page_text:
+                             text_parts.append(page_text)
+                        # --- Placeholder for Image Extraction ---
+                        if extract_images:
+                            # pypdf can extract images, but it's complex to map them
+                            # back to text locations reliably.
+                            # For now, just note that images might exist.
+                             count = 0
+                             for image_file_object in page.images:
+                                 count += 1
+                                 # In future: save image_file_object.data to a file
+                                 # image_references.append(f"extracted_image_{i}_{count}.{image_file_object.name.split('.')[-1]}")
+                             if count > 0:
+                                 logging.debug(f"Found {count} image objects on PDF page {i+1} (extraction not implemented).")
+                    text_content = "\n".join(text_parts)
+                    logging.info(f"Successfully parsed PDF file using pypdf. Extracted {len(text_content)} characters.")
+                except Exception as e:
+                    logging.error(f"Error parsing PDF file '{file_path}' with pypdf: {e}", exc_info=True)
+            else:
+                logging.warning(f"Skipping PDF parsing for '{file_path}' as pypdf library is not available.")
+
+        elif extension == ".docx":
+            if docx:
+                try:
+                    document = docx.Document(file_path)
+                    text_parts = [para.text for para in document.paragraphs if para.text]
+                    # Add text from tables (basic implementation)
+                    for table in document.tables:
+                         for row in table.rows:
+                             for cell in row.cells:
+                                 cell_text = cell.text.strip()
+                                 if cell_text:
+                                     text_parts.append(cell_text) # Append cell text as separate paragraph
+                    text_content = "\n".join(text_parts)
+                    logging.info(f"Successfully parsed DOCX file using python-docx. Extracted {len(text_content)} characters.")
+                    # --- Placeholder for Image Extraction ---
+                    if extract_images:
+                        logging.debug("DOCX image extraction not implemented yet.")
+                        # Requires iterating through shapes/inline_shapes and saving image data
+                except Exception as e:
+                     logging.error(f"Error parsing DOCX file '{file_path}' with python-docx: {e}", exc_info=True)
+            else:
+                logging.warning(f"Skipping DOCX parsing for '{file_path}' as python-docx library is not available.")
+
+        elif extension == ".pptx":
+            if Presentation:
+                try:
+                    prs = Presentation(file_path)
+                    text_parts = []
+                    for slide in prs.slides:
+                        for shape in slide.shapes:
+                            if hasattr(shape, "text"):
+                                shape_text = shape.text.strip()
+                                if shape_text:
+                                     text_parts.append(shape_text)
+                            # --- Placeholder for Table Text ---
+                            if shape.has_table:
+                                table = shape.table
+                                for row in table.rows:
+                                    for cell in row.cells:
+                                         cell_text = cell.text_frame.text.strip()
+                                         if cell_text:
+                                             text_parts.append(cell_text)
+                            # --- Placeholder for Image Extraction ---
+                            if extract_images and hasattr(shape, 'image'):
+                                logging.debug("PPTX image extraction not implemented yet.")
+                                # Would involve saving shape.image.blob
+
+                    text_content = "\n".join(text_parts)
+                    logging.info(f"Successfully parsed PPTX file using python-pptx. Extracted {len(text_content)} characters.")
+                except Exception as e:
+                    logging.error(f"Error parsing PPTX file '{file_path}' with python-pptx: {e}", exc_info=True)
+            else:
+                logging.warning(f"Skipping PPTX parsing for '{file_path}' as python-pptx library is not available.")
+
+        elif extension == ".rtf":
+            if rtf_to_text:
+                 try:
+                     with open(file_path, 'r', encoding='ascii', errors='ignore') as f: # RTF often uses extended ASCII
+                         rtf_content = f.read()
+                     text_content = rtf_to_text(rtf_content)
+                     logging.info(f"Successfully parsed RTF file using striprtf. Extracted {len(text_content)} characters.")
+                     # Image extraction from RTF is generally complex and not supported by striprtf
+                     if extract_images:
+                         logging.debug("RTF image extraction is not supported.")
+                 except Exception as e:
+                     logging.error(f"Error parsing RTF file '{file_path}' with striprtf: {e}", exc_info=True)
+            else:
+                 logging.warning(f"Skipping RTF parsing for '{file_path}' as striprtf library is not available.")
+
+        else:
+            logging.warning(f"Unsupported file format: {extension} for file '{file_path}'. Cannot extract text.")
+            # Consider trying to read as plain text as a fallback?
+            # try:
+            #     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            #         text_content = f.read()
+            #     logging.info(f"Read unsupported file {extension} as plain text (might be garbled).")
+            # except Exception as e:
+            #      logging.error(f"Could not read unsupported file '{file_path}' as plain text: {e}")
+
+    except Exception as e:
+         logging.error(f"An unexpected error occurred during parsing of '{file_path}': {e}", exc_info=True)
+         return "", [] # Return empty on major failure
+
+    return text_content.strip(), image_references
+
+def parse_image_input(image_path: str) -> Any:
+    """
+    Parses an input image file provided directly.
+    This is distinct from extracting images embedded within documents.
+
+    Args:
+        image_path (str): Path to the image file.
+
+    Returns:
+        Any: Placeholder representing the loaded image data (currently the path).
+             Returns None if parsing fails or format is unsupported.
+
+    Raises:
+        FileNotFoundError: If the image file does not exist.
+        ValueError: If the image format is not supported.
+    """
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Image file not found: {image_path}")
+
+    _, extension = os.path.splitext(image_path)
+    supported_extensions = ['.png', '.jpg', '.jpeg', '.bmp', '.gif'] # Common vision model supported types
+    if extension.lower() not in supported_extensions:
+        raise ValueError(f"Unsupported image format for direct input: {extension}")
+
+    # Check if Pillow is available for potential future validation/processing
+    if Image:
+        try:
+            # Try opening the image to validate it
+            with Image.open(image_path) as img:
+                 img.verify() # Verify image header without loading full data
+            logging.debug(f"Validated image file: {image_path}")
+            # For now, just return the path as the 'parsed' data
+            return image_path
+        except Exception as e:
+            logging.error(f"Failed to validate image file '{image_path}' using Pillow: {e}", exc_info=True)
+            # Decide if we should raise ValueError or return None/path anyway
+            # Let's raise for now, as it indicates a problem with the file
+            raise ValueError(f"Image file '{image_path}' seems corrupted or invalid.") from e
+    else:
+        # If Pillow is not installed, we can't validate, just return the path
+        logging.warning("Pillow library not installed. Cannot validate image file, proceeding with path only.")
+        return image_path 

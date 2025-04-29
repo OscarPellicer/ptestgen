@@ -172,3 +172,33 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Environment variables
+.env
+
+# Python virtual environment
+venv/
+*/venv/
+.venv/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Output files (optional, good practice)
+output/
+*/output/
+
+# IDE/Editor specific files
+.vscode/
+.idea/
+*.swp
+
+# Other
+*.egg-info/
+dist/
+build/
+
+# Generated files
+generated/
