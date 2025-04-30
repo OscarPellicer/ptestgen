@@ -200,5 +200,6 @@ output/
 dist/
 build/
 
-# Generated files
+# Generated files: include some for now
 generated/
+!generated/all.md

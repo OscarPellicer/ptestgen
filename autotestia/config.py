@@ -63,18 +63,20 @@ REVIEWER_CRITERIA = {
 DEFAULT_OUTPUT_MD_FILE = "output/questions.md"
 DEFAULT_OUTPUT_MOODLE_XML_FILE = "output/moodle_questions.xml"
 DEFAULT_OUTPUT_GIFT_FILE = "output/gift_questions.gift"
-DEFAULT_OUTPUT_WOOCLAP_FILE = "output/wooclap_questions.xlsx" # Assuming Excel for Wooclap
+DEFAULT_OUTPUT_WOOCLAP_FILE = "output/wooclap_questions.csv" # Changed extension to csv
 DEFAULT_OUTPUT_REXAMS_DIR = "output/rexams/" # Directory for R/exams output files
 DEFAULT_LANGUAGE = "Spanish"
 
 # --- Prompting ---
 # Basic prompt templates (can be refined)
 GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context. Base the questions strictly on the provided context. Try to generate at least one question for each topic that is covered in the context.
+You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context.
 For each question, generate:
 - The question text.
 - The correct answer.
 - A list of distractors.
+
+{custom_generator_instructions}
 
 Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Generate only the JSON object, nothing else.
 """
@@ -88,7 +90,9 @@ Provide:
 - The correct answer.
 - A list of distractors.
 
-Output the question as a single JSON object with keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the question on interpreting the visual information in the image, potentially using the context text for background. Generate only the JSON object, nothing else. 
+{custom_generator_instructions}
+
+Output the question as a single JSON object with keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the question on interpreting the visual information in the image, potentially using the context text for background. Generate only the JSON object, nothing else.
 """
 
 REVIEW_SYSTEM_PROMPT = """
@@ -96,6 +100,10 @@ You are an AI assistant expert in evaluating the quality of multiple-choice ques
 Review the following question based on clarity, correctness, plausibility of distractors, grammatical correctness, and adherence to good question design principles.
 Take special care to ensure that all options are of similar length, and that the level of complexity of the wrong answers is similar to that of the correct answer.
 Make sure that neither the correct answer nor the distractors end with a period.
+If possible, avoid absolutes in the confounders, such as: never, always, exclusively, etc.
+
+{custom_reviewer_instructions}
+
 Provide scores for difficulty and quality between 0.0 (very poor) and 1.0 (excellent).
 Finally, if changes are needed, provide the corrected question (where all the comments from the review have been applied) in the same JSON format as the input question, under the key "reviewed_question".
 

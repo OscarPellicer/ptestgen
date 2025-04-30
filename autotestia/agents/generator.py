@@ -124,8 +124,8 @@ class QuestionGenerator:
                  time.sleep(2 ** attempt) # Exponential backoff
         return None # Should not be reached if exceptions are raised correctly
 
-    def _parse_llm_response(self, response_content: str, expected_type='dict') -> Any:
-        """Attempts to parse the LLM's JSON response."""
+    def _parse_llm_response(self, response_content: str, expected_format='questions_list') -> Any:
+        """Attempts to parse the LLM's JSON response, handling different expected structures."""
         try:
             # Sometimes models wrap JSON in backticks or add prefixes
             response_content = response_content.strip()
@@ -140,24 +140,32 @@ class QuestionGenerator:
             if response_content.startswith("json"):
                  response_content = response_content[len("json"):].strip()
 
-
             data = json.loads(response_content)
 
-            # Validate structure based on expected type
-            if expected_type == 'list': raise ValueError(f"Never should receive a list from the generator. Received: {data}")
-            elif expected_type == 'dict':
-                data = data["questions"]
-                for q in data:
-                    if not all(k in q for k in ["text", "correct_answer", "distractors"]):
-                         raise ValueError(f"Dictionary is missing required keys ('text', 'correct_answer', 'distractors'): {q}")
+            # Validate structure based on expected format
+            if expected_format == 'questions_list':
+                if not isinstance(data, dict) or "questions" not in data:
+                    raise ValueError("Expected JSON object with a 'questions' key containing a list.")
+                questions_list = data["questions"]
+                if not isinstance(questions_list, list):
+                    raise ValueError("Expected 'questions' key to contain a list.")
+                for q in questions_list:
+                    if not isinstance(q, dict) or not all(k in q for k in ["text", "correct_answer", "distractors"]):
+                         raise ValueError(f"List item is not a valid question object (missing keys): {q}")
+                return questions_list # Return the list of questions directly
+            elif expected_format == 'single_question':
+                 if not isinstance(data, dict) or not all(k in data for k in ["text", "correct_answer", "distractors"]):
+                     raise ValueError("Expected JSON object with keys 'text', 'correct_answer', 'distractors'.")
+                 return data # Return the single question dict
+            else:
+                raise ValueError(f"Unknown expected_format: {expected_format}")
 
-            return data
         except json.JSONDecodeError as e:
             logging.error(f"Could not decode JSON response: {e}")
             logging.error(f"Raw response content was:\n---\n{response_content}\n---")
             return None
         except ValueError as e:
-             logging.error(f"Invalid response structure: {e}")
+             logging.error(f"Invalid response structure for format '{expected_format}': {e}")
              logging.error(f"Raw response content was:\n---\n{response_content}\n---")
              return None
         except Exception as e:
@@ -166,18 +174,43 @@ class QuestionGenerator:
              return None
 
 
-    def generate_questions_from_text(self, text_content: str, num_questions: int = config.DEFAULT_NUM_QUESTIONS, 
+    def generate_questions_from_text(self,
+                                     text_content: Optional[str], # Make optional
+                                     num_questions: int = config.DEFAULT_NUM_QUESTIONS,
                                      num_options: int = config.DEFAULT_NUM_OPTIONS,
-                                     language: str = config.DEFAULT_LANGUAGE) -> List[Question]:
-        """Generates multiple-choice questions based on text using the configured LLM."""
-        if self.llm_provider == "stub" or not self.client:
-            # Need to pass num_options to generate correct number of distractors
-            return self._generate_stub_questions(num_questions, num_options, "Provided Text")
+                                     language: str = config.DEFAULT_LANGUAGE,
+                                     custom_instructions: Optional[str] = None) -> List[Question]:
+        """
+        Generates multiple-choice questions based on text or instructions using the configured LLM.
+        """
+        if not text_content and not custom_instructions:
+            logging.warning("generate_questions_from_text called without text_content or custom_instructions. Cannot generate.")
+            return []
 
-        logging.info(f"Generating {num_questions} questions from text using {self.llm_provider} ({self.model_name})...")
+        if self.llm_provider == "stub" or not self.client:
+            source_desc = "Provided Text" if text_content else "Provided Instructions"
+            return self._generate_stub_questions(num_questions, num_options, source_desc)
+
+        logging.info(f"Generating {num_questions} questions from {'text' if text_content else 'instructions'} using {self.llm_provider} ({self.model_name})...")
         questions = []
         num_distractors = num_options - 1
-        prompt = f"Context:\n{text_content}\n\nGenerate exactly {num_questions} multiple-choice questions based on the context above. Each question should have one correct answer and {num_distractors} distractors. Generate the questions and the answers in the following language: {language}"
+
+        # --- Prepare Prompt ---
+        # System Prompt
+        system_prompt = config.GENERATION_SYSTEM_PROMPT.format(
+            custom_generator_instructions=custom_instructions if custom_instructions else ""
+        )
+
+        # User Prompt
+        user_prompt_parts = []
+        if text_content:
+            user_prompt_parts.append(f"Context:\n{text_content}\n")
+        user_prompt_parts.append(f"Generate exactly {num_questions} multiple-choice questions {'based on the context above' if text_content else 'based on the instructions'}.")
+        user_prompt_parts.append(f"Each question should have one correct answer and {num_distractors} distractors.")
+        user_prompt_parts.append(f"Generate the questions and the answers in the following language: {language}.")
+
+        user_prompt = "\n".join(user_prompt_parts)
+        # --- End Prompt Prep ---
 
         try:
             response_content = None
@@ -188,20 +221,17 @@ class QuestionGenerator:
                     model=self.model_name,
                     response_format={ "type": "json_object" },
                     messages=[
-                        {"role": "system", "content": config.GENERATION_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
                     ]
                 )
                 response_content = completion.choices[0].message.content
             elif self.llm_provider == "google":
-                # Assumes self.client is the configured genai module
                 model = self.client.GenerativeModel(self.model_name)
-                generation_config = self.client.types.GenerationConfig(
-                    response_mime_type="application/json"
-                )
+                generation_config = self.client.types.GenerationConfig(response_mime_type="application/json")
                 response = self._call_llm_with_retry(
                     model.generate_content,
-                    [config.GENERATION_SYSTEM_PROMPT, prompt],
+                    [system_prompt, user_prompt], # Pass both prompts
                     generation_config=generation_config
                 )
                 response_content = response.text
@@ -209,55 +239,47 @@ class QuestionGenerator:
                  message = self._call_llm_with_retry(
                      self.client.messages.create,
                      model=self.model_name,
-                     max_tokens=4000, # Adjust as needed
-                     system=config.GENERATION_SYSTEM_PROMPT,
-                     messages=[{"role": "user", "content": prompt}]
+                     max_tokens=4000,
+                     system=system_prompt, # Use system parameter
+                     messages=[{"role": "user", "content": user_prompt}]
                  )
                  response_content = next((block.text for block in message.content if block.type == 'text'), None)
             elif self.llm_provider == "replicate":
-                # Replicate often needs a combined prompt
-                full_prompt = f"{config.GENERATION_SYSTEM_PROMPT}\n\n{prompt}"
-                # Input format might vary based on the specific Replicate model
+                full_prompt = f"{system_prompt}\n\n{user_prompt}" # Combine for Replicate
                 output = self._call_llm_with_retry(
                     self.client.run,
                     self.model_name,
                     input={"prompt": full_prompt}
-                    # Example for models needing structured input:
-                    # input={
-                    #     "system_prompt": config.GENERATION_SYSTEM_PROMPT,
-                    #     "prompt": prompt
-                    # }
                 )
-                response_content = "".join(output) # Assuming iterator output
+                response_content = "".join(output)
 
             # --- Process response ---
             if not response_content:
                  logging.error("No content received from LLM.")
                  return []
 
-            parsed_data = self._parse_llm_response(response_content, expected_type='dict')
+            # Expect a list of question dicts from the parser now
+            parsed_data = self._parse_llm_response(response_content, expected_format='questions_list')
 
             if parsed_data:
                  question_id_counter = 1
+                 source_material_desc = "Provided Text" if text_content else "Provided Instructions"
                  for item in parsed_data:
-                     # Check structure according to new schema
-                     if isinstance(item, dict) and all(k in item for k in ["text", "correct_answer", "distractors"]):
-                         # Basic validation
-                         if isinstance(item["distractors"], list) and len(item["distractors"]) == num_distractors:
-                             q = Question(
-                                 id=question_id_counter,
-                                 text=item["text"],
-                                 correct_answer=item["correct_answer"],
-                                 distractors=item["distractors"],
-                                 explanation=item.get("explanation"), # Keep explanation if provided
-                                 source_material="Provided Text"
-                             )
-                             questions.append(q)
-                             question_id_counter += 1
-                         else:
-                             logging.warning(f"Skipping malformed question item (invalid/missing distractors): {item}")
+                     # Validation is now done inside _parse_llm_response
+                     # Basic length check remains useful
+                     if isinstance(item.get("distractors"), list) and len(item["distractors"]) == num_distractors:
+                         q = Question(
+                             id=question_id_counter,
+                             text=item["text"],
+                             correct_answer=item["correct_answer"],
+                             distractors=item["distractors"],
+                             explanation=item.get("explanation"),
+                             source_material=source_material_desc
+                         )
+                         questions.append(q)
+                         question_id_counter += 1
                      else:
-                         logging.warning(f"Skipping invalid item in LLM response (missing keys): {item}")
+                         logging.warning(f"Skipping malformed question item (invalid/missing distractors): {item}")
 
         except Exception as e:
             logging.error(f"Error during LLM call or processing for {self.llm_provider}: {e}", exc_info=True)
@@ -266,7 +288,11 @@ class QuestionGenerator:
         return questions
 
 
-    def generate_question_from_image(self, image_path: str, context_text: Optional[str] = None, num_options: int = config.DEFAULT_NUM_OPTIONS) -> Optional[Question]:
+    def generate_question_from_image(self,
+                                     image_path: str,
+                                     context_text: Optional[str] = None,
+                                     num_options: int = config.DEFAULT_NUM_OPTIONS,
+                                     custom_instructions: Optional[str] = None) -> Optional[Question]:
         """Generates a single question from an image using the configured LLM."""
         if self.llm_provider == "stub" or not self.client:
             return self._generate_stub_questions(1, num_options, f"Image: {image_path}")[0]
@@ -276,8 +302,8 @@ class QuestionGenerator:
         # Vision capabilities check (simple)
         vision_models = {
             "openai": ["gpt-4o", "gpt-4-vision-preview", "gpt-4-turbo"], # Add other vision models
-            "google": ["gemini-1.5-pro", "gemini-pro-vision", "gemini-1.5-pro-latest"],
-            "anthropic": ["claude-3", "claude-3-5-sonnet"], # Check exact names
+            "google": ["gemini-1.5-pro", "gemini-pro-vision", "gemini-1.5-pro-latest", "gemini-2.5-pro"],
+            "anthropic": ["claude-3", "claude-3-7-sonnet"], # Check exact names
             "replicate": [] # Replicate vision models often have specific names like 'llava', check model details
         }
         # A basic check, might need refinement based on exact model strings
@@ -299,9 +325,17 @@ class QuestionGenerator:
         mime_type = get_image_mime_type(image_path)
         num_distractors = num_options - 1
 
-        prompt = f"Generate ONE multiple-choice question based on the provided image. It should have one correct answer and {num_distractors} distractors. Follow the JSON output format specified in the system prompt."
+        # --- Prepare Prompt ---
+        # System Prompt
+        system_prompt = config.IMAGE_GENERATION_SYSTEM_PROMPT.format(
+            custom_generator_instructions=custom_instructions if custom_instructions else ""
+        )
+
+        # User Prompt (base)
+        user_prompt_text = f"Generate ONE multiple-choice question based on the provided image. It should have one correct answer and {num_distractors} distractors. Follow the JSON output format specified in the system prompt."
         if context_text:
-            prompt += f"\n\nOptional Context:\n{context_text}"
+            user_prompt_text += f"\n\nOptional Context:\n{context_text}"
+        # --- End Prompt Prep ---
 
         try:
             response_content = None
@@ -311,22 +345,22 @@ class QuestionGenerator:
                     model=self.model_name,
                      response_format={ "type": "json_object" },
                     messages=[
-                        {"role": "system", "content": config.IMAGE_GENERATION_SYSTEM_PROMPT},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": [
-                            {"type": "text", "text": prompt},
+                            {"type": "text", "text": user_prompt_text},
                             {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}}
                         ]}
                     ],
-                    max_tokens=1000 # Increase tokens for image analysis
+                    max_tokens=1000
                 )
                 response_content = completion.choices[0].message.content
             elif self.llm_provider == "google":
                  model = self.client.GenerativeModel(self.model_name)
                  generation_config = self.client.types.GenerationConfig(response_mime_type="application/json")
-                 image_part = {"mime_type": mime_type, "data": base64.b64decode(base64_image)} # Gemini wants bytes
+                 image_part = {"mime_type": mime_type, "data": base64.b64decode(base64_image)}
                  response = self._call_llm_with_retry(
                      model.generate_content,
-                     [config.IMAGE_GENERATION_SYSTEM_PROMPT, prompt, image_part],
+                     [system_prompt, user_prompt_text, image_part], # Pass system prompt
                      generation_config=generation_config
                  )
                  response_content = response.text
@@ -335,33 +369,27 @@ class QuestionGenerator:
                      self.client.messages.create,
                      model=self.model_name,
                      max_tokens=4000,
-                     system=config.IMAGE_GENERATION_SYSTEM_PROMPT,
+                     system=system_prompt, # Pass system prompt
                      messages=[{
                          "role": "user",
                          "content": [
                              {
                                  "type": "image",
-                                 "source": {
-                                     "type": "base64",
-                                     "media_type": mime_type,
-                                     "data": base64_image,
-                                 }
+                                 "source": { "type": "base64", "media_type": mime_type, "data": base64_image }
                              },
-                             {"type": "text", "text": prompt}
+                             {"type": "text", "text": user_prompt_text}
                          ]
                      }]
                  )
                  response_content = next((block.text for block in message.content if block.type == 'text'), None)
             elif self.llm_provider == "replicate":
-                 # Replicate image input varies greatly by model. This is a common pattern.
-                 # Assumes model takes 'image' and 'prompt' in input. Check specific model docs!
+                 full_prompt = f"{system_prompt}\n\n{user_prompt_text}" # Combine system/user for prompt field
                  output = self._call_llm_with_retry(
                      self.client.run,
                      self.model_name,
                      input={
                          "image": f"data:{mime_type};base64,{base64_image}",
-                         "prompt": f"{config.IMAGE_GENERATION_SYSTEM_PROMPT}\n\n{prompt}" # Combine prompts
-                         # Add other model-specific parameters if needed (e.g., max_tokens)
+                         "prompt": full_prompt
                      }
                  )
                  response_content = "".join(output)
@@ -371,27 +399,27 @@ class QuestionGenerator:
                 logging.error("No content received from LLM for image question.")
                 return None
 
-            parsed_data = self._parse_llm_response(response_content, expected_type='dict')
+            # Expect a single question dict from the parser
+            parsed_data = self._parse_llm_response(response_content, expected_format='single_question')
 
-            if parsed_data and isinstance(parsed_data, dict) and all(k in parsed_data for k in ["text", "correct_answer", "distractors"]):
-                 if isinstance(parsed_data["distractors"], list) and len(parsed_data["distractors"]) == num_distractors:
+            if parsed_data:
+                 # Validation now done in parser
+                 if isinstance(parsed_data.get("distractors"), list) and len(parsed_data["distractors"]) == num_distractors:
                     q = Question(
-                        id=999, # Placeholder ID, will be updated in pipeline
+                        id=999, # Placeholder ID
                         text=parsed_data["text"],
                         correct_answer=parsed_data["correct_answer"],
                         distractors=parsed_data["distractors"],
                         explanation=parsed_data.get("explanation"),
                         source_material=f"Image: {os.path.basename(image_path)}" + (f", Context provided" if context_text else ""),
-                        image_reference=image_path # Store original path
+                        image_reference=image_path
                     )
                     logging.info(f"Generated question from image.")
                     return q
                  else:
                      logging.warning(f"Skipping malformed image question item (invalid distractors): {parsed_data}")
                      return None
-            else:
-                 logging.warning(f"Skipping invalid item in image LLM response (missing keys): {parsed_data}")
-                 return None
+            # else: No need for else, parser handles logging
 
 
         except Exception as e:
