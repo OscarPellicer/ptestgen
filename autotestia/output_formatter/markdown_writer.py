@@ -117,8 +117,8 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
     question_blocks = [block.strip() for block in content.split("\n---\n") if block.strip()]
 
     # Regex for parsing options and comments robustly
-    # Matches "- text (Correct: YES/NO)" ignoring case and whitespace variations
-    re_option = re.compile(r"^\s*-\s*(.*?)\s*\(Correct:\s*(YES|NO)\)", re.IGNORECASE)
+    # Matches "- text" ignoring case and whitespace variations
+    re_option = re.compile(r"^\s*-\s*(.*)", re.IGNORECASE)
     # Matches "- comment text"
     re_comment = re.compile(r"^\s*-\s*(.*)")
 
@@ -232,8 +232,7 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
                  match = re_option.match(stripped_line)
                  if match:
                      option_text = match.group(1).strip()
-                     is_correct = match.group(2).upper() == "YES"
-                     options_parsed.append((option_text, is_correct))
+                     options_parsed.append(option_text)
                  elif stripped_line: # Log unexpected non-empty lines in options section
                       logging.warning(f"Ignoring unexpected line in Options section for Q {question_data.get('id', 'unknown')}: '{stripped_line}'")
             elif current_multiline_field in ["text", "explanation"]:
@@ -247,6 +246,15 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
              if current_multiline_field in question_data:
                  question_data[current_multiline_field] = content if content else None
 
+        # --- Process Parsed Options ---
+        if options_parsed:
+            question_data["correct_answer"] = options_parsed[0]
+            question_data["distractors"] = options_parsed[1:]
+        else:
+            # Explicitly set to None/empty if no options were found
+            question_data["correct_answer"] = None
+            question_data["distractors"] = []
+
         # Assign fallback ID if needed
         if question_data["id"] is None:
             question_data["id"] = current_id_fallback
@@ -254,36 +262,12 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
         else:
             current_id_fallback = max(current_id_fallback, question_data["id"] + 1)
 
-        # Process parsed options
-        correct_found = None
-        temp_distractors = []
-        correct_count = 0
-        for opt_text, is_correct_flag in options_parsed:
-            if is_correct_flag:
-                if correct_count == 0:
-                     correct_found = opt_text
-                else: # Handle multiple correct answers gracefully
-                     logging.warning(f"Multiple options marked as correct for Question ID {question_data['id']}. Using first ('{correct_found}') as correct, others as distractors.")
-                     temp_distractors.append(opt_text)
-                correct_count += 1
-            else:
-                temp_distractors.append(opt_text)
-
-        if correct_count == 0 and options_parsed: # Only error if options existed but none were marked correct
-             logging.error(f"No correct answer marked for Question ID {question_data['id']}. Skipping question.")
-             continue
-        elif correct_count >= 1:
-             question_data["correct_answer"] = correct_found
-             question_data["distractors"] = temp_distractors
-        # If options_parsed is empty, correct_answer remains None, handled by validation below
-
-
         # --- Validation and Question Object Creation ---
         missing = []
         if not question_data["text"]: missing.append("text")
         if question_data["correct_answer"] is None: missing.append("correct answer")
-        # Allow questions with no distractors, but require text and correct answer
-        # if not question_data["distractors"] and options_parsed: missing.append("distractors")
+        # We now allow questions with no distractors if needed by the user review.
+        # if not question_data["distractors"] and options_parsed: missing.append("distractors") # Old check
 
         if not missing:
             try:
@@ -300,7 +284,8 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
             except Exception as e:
                  logging.error(f"Unexpected error creating Question object for ID {question_data['id']}: {e}. Data: {final_data}", exc_info=True)
         elif block: # Only warn if block wasn't just whitespace or header
-             logging.warning(f"Skipping block for Question ID {question_data.get('id', 'unknown')} due to missing essential parts: {', '.join(missing)}.")
+             # Include block index for easier location in the markdown file
+             logging.warning(f"Skipping block (index {block_index}) for Question ID {question_data.get('id', 'unknown')} due to missing essential parts: {', '.join(missing)}.")
 
     logging.info(f"Parsed {len(questions)} questions from reviewed Markdown: {markdown_file}")
     return questions 

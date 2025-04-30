@@ -355,7 +355,26 @@ class AutoTestIAPipeline:
 
 
         print(f"Proceeding to convert {len(questions_for_conversion)} final questions.")
-        # Note: Answer shuffling happens *inside* the converters using shuffle_answers_seed
+
+        # --- Apply Answer Shuffling ---
+        if shuffle_answers_seed is not None:
+            print(f"Shuffling answers within questions (seed: {'Random each run' if shuffle_answers_seed == 0 else shuffle_answers_seed})...")
+            logging.info(f"Applying answer shuffling (seed: {shuffle_answers_seed}).")
+
+            # Create a single random instance if a specific seed is given
+            answer_random = None
+            if shuffle_answers_seed != 0:
+                answer_random = random.Random(shuffle_answers_seed)
+
+            for question in questions_for_conversion:
+                # Use the single instance or create a new one for each question if seed is 0
+                current_random = answer_random if answer_random else random.Random()
+                # Shuffle the options list in place
+                current_random.shuffle(question.options)
+        else:
+            # Note: If shuffle_answers_seed is None, answers retain their original order.
+            logging.info("Skipping answer shuffling as shuffle_answers_seed is None.")
+
 
         # 6. Convert to Desired Formats (OE4)
         print("\nStep 6: Converting to final formats...")
@@ -371,31 +390,29 @@ class AutoTestIAPipeline:
         base_filename = os.path.splitext(os.path.basename(markdown_file_for_conversion))[0]
 
         conversion_performed = False
-        # Pass the shuffle_answers_seed to each converter
-        common_converter_args = {
-            "shuffle_answers_seed": shuffle_answers_seed
-        }
+        # Note: shuffle_answers_seed argument is removed from converter calls below
+        # as shuffling is now handled centrally in the pipeline.
 
         if 'moodle_xml' in output_formats:
             moodle_path = os.path.join(output_dir, f"{base_filename}_moodle.xml")
-            converters.convert_to_moodle_xml(questions_for_conversion, moodle_path, **common_converter_args)
+            converters.convert_to_moodle_xml(questions_for_conversion, moodle_path) # Removed shuffle_answers_seed
             conversion_performed = True
 
         if 'gift' in output_formats:
             gift_path = os.path.join(output_dir, f"{base_filename}.gift")
-            converters.convert_to_gift(questions_for_conversion, gift_path, **common_converter_args)
+            converters.convert_to_gift(questions_for_conversion, gift_path) # Removed shuffle_answers_seed
             conversion_performed = True
 
         if 'wooclap' in output_formats:
             # Use the updated default extension from config
             wooclap_path = os.path.join(output_dir, f"{base_filename}_wooclap.csv")
-            converters.convert_to_wooclap(questions_for_conversion, wooclap_path, **common_converter_args)
+            converters.convert_to_wooclap(questions_for_conversion, wooclap_path) # Removed shuffle_answers_seed
             conversion_performed = True
 
         if 'rexams' in output_formats:
             # R/exams output is a directory based on the base filename
             rexams_dir_path = os.path.join(output_dir, f"{base_filename}_rexams")
-            converters.prepare_for_rexams(questions_for_conversion, rexams_dir_path, **common_converter_args)
+            converters.prepare_for_rexams(questions_for_conversion, rexams_dir_path) # Removed shuffle_answers_seed
             conversion_performed = True
 
         if conversion_performed:

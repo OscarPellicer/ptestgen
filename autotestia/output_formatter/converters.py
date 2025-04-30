@@ -144,55 +144,87 @@ def convert_to_gift(questions: List[Question], output_file: str):
 
 def convert_to_wooclap(questions: List[Question], output_file: str):
     """
-    Converts questions to Excel format suitable for Wooclap import.
+    Converts questions to CSV format suitable for Wooclap import,
+    with specific columns: Type, Title, Correct, Choice 1, Choice 2, ...
+    Backticks in text are replaced with double quotes.
     """
+    # Ensure the output file has a .csv extension
+    if not output_file.lower().endswith('.csv'):
+        base, _ = os.path.splitext(output_file)
+        output_file = base + '.csv'
+        logging.warning(f"Output filename did not end with .csv, changing to: {output_file}")
+
+
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    logging.info(f"Attempting to convert {len(questions)} questions to Wooclap Excel: {output_file}")
+    logging.info(f"Attempting to convert {len(questions)} questions to Wooclap CSV: {output_file}")
 
     if not pd:
-         logging.warning("Pandas library not found. Cannot create Excel file for Wooclap. Creating placeholder text file.")
-         placeholder_content = "Wooclap Excel export requires the 'pandas' and 'openpyxl' libraries.\nInstall them with: pip install pandas openpyxl\n\n"
+         logging.warning("Pandas library not found. Cannot create CSV file for Wooclap. Creating placeholder text file.")
+         placeholder_content = "Wooclap CSV export requires the 'pandas' library.\nInstall it with: pip install pandas\n\n"
          for q in questions:
-              placeholder_content += f"Q{q.id}: {q.text}\nCorrect: {q.correct_answer}\nIncorrect: {'; '.join(q.distractors)}\n\n"
-         with open(output_file.replace(".xlsx", ".txt"), 'w', encoding='utf-8') as f:
+              # Basic text representation for placeholder
+              safe_text = q.text.replace('`', '"')
+              safe_correct = q.correct_answer.replace('`', '"')
+              safe_distractors = [d.replace('`', '"') for d in q.distractors]
+              placeholder_content += f"Q{q.id}: {safe_text}\nCorrect: {safe_correct}\nIncorrect: {'; '.join(safe_distractors)}\n\n"
+         # Create a .txt placeholder if pandas is missing
+         txt_placeholder_file = os.path.splitext(output_file)[0] + ".txt"
+         with open(txt_placeholder_file, 'w', encoding='utf-8') as f:
               f.write(placeholder_content)
+         logging.info(f"Created placeholder text file: {txt_placeholder_file}")
          return
 
     # Proceed with Pandas export
     data = []
+    max_choices = 0 # Keep track of the maximum number of choices for column definition
     for q in questions:
-        # Wooclap format often requires specific columns. This is a guess.
-        # Check Wooclap's import template for exact requirements.
-        # Common format: Question | Option 1 | Option 2 | ... | Correct Answer(s) Index/Text
-        row = {'Type': 'MCQ', 'Question': q.text} # Add Type column
+        # Replace backticks in question text
+        title = q.text.replace('`', '"')
+        # Base row structure
+        row = {'Type': 'MCQ', 'Title': title}
         options = [q.correct_answer] + q.distractors
+        current_num_choices = len(options)
+        if current_num_choices > max_choices:
+            max_choices = current_num_choices
+
         random.shuffle(options) # Shuffle options for Wooclap display
 
-        correct_indices = []
+        correct_index_str = None
         for i, option in enumerate(options):
-             row[f'Choice {i+1}'] = option
+             # Replace backticks in option text
+             safe_option = option.replace('`', '"')
+             col_name = f'Choice {i+1}'
+             row[col_name] = safe_option
              if option == q.correct_answer:
-                 correct_indices.append(str(i+1)) # Wooclap often uses 1-based index
+                 correct_index_str = str(i+1) # Wooclap often uses 1-based index
 
-        row['Correct Answer(s)'] = ", ".join(correct_indices) # Comma-separated indices
-        row['Explanation'] = q.explanation if q.explanation else "" # Add explanation if present
-        # Add scores if needed/supported by Wooclap import
-        row['Difficulty'] = f"{q.difficulty_score:.2f}" if q.difficulty_score is not None else ""
-        row['Quality'] = f"{q.quality_score:.2f}" if q.quality_score is not None else ""
+        # Assert that exactly one correct answer index was found (for MCQ)
+        assert correct_index_str is not None, f"Correct answer not found in options for question ID {q.id}"
+        row['Correct'] = correct_index_str
+
+        # Remove previously added extra columns implicitly by not adding them here
+        # row['Explanation'] = ...
+        # row['Difficulty'] = ...
+        # row['Quality'] = ...
 
         data.append(row)
 
     if data:
+        # Define the exact column order dynamically based on max_choices
+        choice_cols = [f'Choice {i+1}' for i in range(max_choices)]
+        column_order = ['Type', 'Title', 'Correct'] + choice_cols
+
+        # Create DataFrame, Pandas handles missing columns (e.g., if one question has fewer choices)
         df = pd.DataFrame(data)
+        # Reindex to ensure the exact column order and include all necessary choice columns
+        df = df.reindex(columns=column_order)
+
         try:
-            # Ensure openpyxl is installed for .xlsx writing
-            df.to_excel(output_file, index=False, engine='openpyxl')
-            logging.info(f"Successfully converted {len(questions)} questions to Wooclap Excel: {output_file}")
-        except ImportError:
-             logging.error("`openpyxl` library is required for Excel export but not found. Install with `pip install openpyxl`")
-             print("Error: openpyxl needed for Excel export. Install it: pip install openpyxl", file=sys.stderr)
+            # Write to CSV file without pandas index, using specified order
+            df.to_csv(output_file, index=False, encoding='utf-8', columns=column_order)
+            logging.info(f"Successfully converted {len(questions)} questions to Wooclap CSV: {output_file}")
         except Exception as e:
-             logging.error(f"Failed to write Wooclap Excel file {output_file}: {e}", exc_info=True)
+             logging.error(f"Failed to write Wooclap CSV file {output_file}: {e}", exc_info=True)
     else:
         logging.info("No questions to convert to Wooclap format.")
 

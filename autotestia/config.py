@@ -78,7 +78,7 @@ For each question, generate:
 
 {custom_generator_instructions}
 
-Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Generate only the JSON object, nothing else.
+Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Output only the JSON object, nothing else.
 """
 
 IMAGE_GENERATION_SYSTEM_PROMPT = """
@@ -92,7 +92,7 @@ Provide:
 
 {custom_generator_instructions}
 
-Output the question as a single JSON object with keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the question on interpreting the visual information in the image, potentially using the context text for background. Generate only the JSON object, nothing else.
+Output the question as a single JSON object with keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the question on interpreting the visual information in the image, potentially using the context text for background. Output only the JSON object, nothing else.
 """
 
 REVIEW_SYSTEM_PROMPT = """
@@ -104,13 +104,13 @@ If possible, avoid absolutes in the confounders, such as: never, always, exclusi
 
 {custom_reviewer_instructions}
 
-Provide scores for difficulty and quality between 0.0 (very poor) and 1.0 (excellent).
-Finally, if changes are needed, provide the corrected question (where all the comments from the review have been applied) in the same JSON format as the input question, under the key "reviewed_question".
+Provide scores for difficulty and quality between 0.0 (extremely easy / worst quality) and 1.0 (extremely challenging / excellent quality).
+Finally, if changes are needed, provide the corrected question (including the question text, the correct answer and the confounders) in the same JSON format as the input question, under the key "reviewed_question".
 
 Input Question (JSON format):
 {question_json}
 
-Output your review as a JSON object with keys: "difficulty_score" (float), "quality_score" (float), "reviewed_question" (optional: a JSON object with keys: "text", "correct_answer", "distractors"). Generate only the JSON object, nothing else.
+Output your review as a JSON object with keys: "difficulty_score" (float), "quality_score" (float), "reviewed_question" (optional: a JSON object with keys: "text", "correct_answer", "distractors"). Output only the JSON object, nothing else.
 """
 
 
