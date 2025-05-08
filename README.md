@@ -161,10 +161,15 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
 *   **General Options:**
     *   `--log-level`: Set logging verbosity (choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, default: `WARNING`).
 
+**R/exams Options:**
+
+*   `--rexams-title`: Custom title for R/exams PDF output. If not set, uses R script's default.
+*   `--rexams-course`: Custom course name for R/exams PDF output. If not set, uses R script's default.
+
 ## Next Steps
 
-*   Test all the output formas (Wooclap has been tested only so far)
-*   Test robust parsing for PDF, DOCX in `input_parser/parser.py`.
+*   Test all the output formats (only Wooclap and R/Exams have been tested so far)
+*   Test robust parsing for PDF, DOCX in `input_parser/parser.py` (only PPTX and text formats have been tested so far)
 *   Develop evaluation metrics and agent (OE6).
 *   Explore dynamic questions (OE7) and humorous distractors (OE8).
 *   Consider adding support for self-hosted models.
