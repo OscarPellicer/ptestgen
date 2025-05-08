@@ -7,6 +7,7 @@ import html
 import random # Needed for shuffling options
 import logging
 import sys
+import re # ADDED for LaTeX escaping
 
 # Placeholder for Wooclap export (e.g., using pandas/openpyxl if Excel)
 try:
@@ -229,6 +230,16 @@ def convert_to_wooclap(questions: List[Question], output_file: str):
         logging.info("No questions to convert to Wooclap format.")
 
 
+def escape_latex(text: str) -> str:
+    """
+    Escapes special LaTeX characters in a given string for R/exams.
+    Aims to make text suitable for inclusion in Rmd files that become LaTeX.
+
+    This has been DEPRECATED: now the prompt specifies that any special characters
+    or code blocks should be enclosed in backticks, which are correctly handled by R/exams.
+    """    
+    return text
+
 def prepare_for_rexams(questions: List[Question], output_dir: str):
     """Prepares question files (.Rmd) for R/exams using new schema."""
     os.makedirs(output_dir, exist_ok=True)
@@ -241,9 +252,13 @@ def prepare_for_rexams(questions: List[Question], output_dir: str):
 
         try:
             with open(q_filepath, 'w', encoding='utf-8') as f:
+                # For q.text
+                logging.debug(f"R/exams PRE-ESCAPE TEXT: '{q.text}'")
+                escaped_q_text = escape_latex(q.text)
+                logging.debug(f"R/exams POST-ESCAPE TEXT: '{escaped_q_text}'")
                 f.write(f"Question\n")
                 f.write(f"========\n")
-                f.write(f"{q.text}\n\n")
+                f.write(f"{escaped_q_text}\n\n") # Use the logged variable
 
                 if q.image_reference:
                     image_filename = os.path.basename(q.image_reference)
@@ -259,8 +274,11 @@ def prepare_for_rexams(questions: List[Question], output_dir: str):
                 f.write(f"Questionlist\n")
                 f.write(f"------------\n")
                 # Write options (R/exams handles shuffling based on exshuffle)
-                for option_text in options_list:
-                    f.write(f"* {option_text}\n")
+                for option_text_original in options_list:
+                    logging.debug(f"R/exams PRE-ESCAPE OPTION: '{option_text_original}'")
+                    option_text_escaped = escape_latex(option_text_original)
+                    logging.debug(f"R/exams POST-ESCAPE OPTION: '{option_text_escaped}'")
+                    f.write(f"* {option_text_escaped}\n") # Use the logged variable
                 f.write("\n")
 
                 # R/exams doesn't typically show the solution list directly in basic Rmd
@@ -270,10 +288,16 @@ def prepare_for_rexams(questions: List[Question], output_dir: str):
                 f.write(f"========\n")
                 # Provide explanation here
                 if q.explanation:
-                    f.write(f"{q.explanation}\n\n")
+                    logging.debug(f"R/exams PRE-ESCAPE EXPLANATION: '{q.explanation}'")
+                    escaped_explanation = escape_latex(q.explanation)
+                    logging.debug(f"R/exams POST-ESCAPE EXPLANATION: '{escaped_explanation}'")
+                    f.write(f"{escaped_explanation}\n\n") # Use the logged variable
                 else:
                     # Add correct answer text if no explanation provided
-                     f.write(f"The correct answer is: {q.correct_answer}\n\n")
+                    logging.debug(f"R/exams PRE-ESCAPE CORRECT_ANSWER_FOR_SOLUTION: '{q.correct_answer}'")
+                    escaped_correct_answer = escape_latex(q.correct_answer)
+                    logging.debug(f"R/exams POST-ESCAPE CORRECT_ANSWER_FOR_SOLUTION: '{escaped_correct_answer}'")
+                    f.write(f"The correct answer is: {escaped_correct_answer}\n\n") # Use the logged variable
 
 
                 f.write(f"Meta-information\n")

@@ -229,4 +229,50 @@ def parse_image_input(image_path: str) -> Any:
     else:
         # If Pillow is not installed, we can't validate, just return the path
         logging.warning("Pillow library not installed. Cannot validate image file, proceeding with path only.")
-        return image_path 
+        return image_path
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    # Configure basic logging for the CLI tool
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+    parser = argparse.ArgumentParser(description="Extract text from a document.")
+    parser.add_argument("file_path", help="Path to the input document file.")
+    parser.add_argument(
+        "--extract-images",
+        action="store_true",
+        help="Attempt to extract images (currently placeholder functionality)."
+    )
+
+    if len(sys.argv) == 1: # No arguments provided
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
+    args = parser.parse_args()
+
+    try:
+        text_content, image_refs = parse_input_material(args.file_path, args.extract_images)
+        if text_content:
+            print("\n--- Extracted Text ---")
+            print(text_content)
+        else:
+            print("\nNo text content extracted or file was empty/unsupported.")
+
+        if image_refs:
+            print("\n--- Image References ---")
+            for ref in image_refs:
+                print(ref)
+        elif args.extract_images:
+            print("\nNo images were extracted or found (or feature not fully implemented).")
+
+    except FileNotFoundError as e:
+        logging.error(e)
+        sys.exit(1)
+    except ValueError as e: # For unsupported image types in parse_image_input, if used
+        logging.error(e)
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}", exc_info=True)
+        sys.exit(1) 

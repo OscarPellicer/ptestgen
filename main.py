@@ -96,6 +96,16 @@ def main():
                         default=None, # Default: use all questions
                         help="Select a specific number of questions randomly from the final set (after potential question shuffling).")
 
+    # --- R/exams Specific Arguments ---
+    parser.add_argument("--rexams-title",
+                        type=str,
+                        default=None,
+                        help="Custom title for R/exams PDF output. If not set, uses R script's default.")
+    parser.add_argument("--rexams-course",
+                        type=str,
+                        default=None,
+                        help="Custom course name for R/exams PDF output. If not set, uses R script's default.")
+
     # --- Logging Argument ---
     parser.add_argument("--log-level",
                          default='WARNING', # Default to WARNING
@@ -288,7 +298,10 @@ def main():
             # Pass shuffling and selection arguments
             shuffle_questions_seed=shuffle_questions_seed,
             shuffle_answers_seed=shuffle_answers_seed,
-            num_final_questions=num_final_questions
+            num_final_questions=num_final_questions,
+            # R/exams specific
+            rexams_title=args.rexams_title,
+            rexams_course=args.rexams_course
         )
     except Exception as e:
         logging.error(f"Pipeline execution failed: {e}", exc_info=True) # Log with traceback
@@ -301,7 +314,7 @@ def main():
 
 
 if __name__ == "__main__":
-    # Example usage for the requested test case:
+    # Example usage:
     # Assuming 'all.md' exists in the 'output' directory:
     # python main.py --resume-from-md output/all.md --formats wooclap --shuffle-questions 42 --shuffle-answers 42 --num-final-questions 10 -o output/ignored_but_needed_placeholder.md
     # Note: -o is technically ignored in resume mode but might be required by argparse depending on setup.

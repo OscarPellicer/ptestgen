@@ -191,7 +191,7 @@ output/
 */output/
 
 # IDE/Editor specific files
-.vscode/
+# .vscode/
 .idea/
 *.swp
 

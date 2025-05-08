@@ -1,0 +1,265 @@
+---
+title: "Guía de Autocorrección de Exámenes con R/exams"
+output: html_document
+---
+
+# Guía de Autocorrección de Exámenes con R/exams
+
+Este documento proporciona instrucciones detalladas sobre cómo realizar la autocorrección de exámenes generados con R/exams en formato NOPS.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Expected file structure:
+
+```{none}
+./ # Root path
+├── examenes.pdf # Must be created (see next cell)
+├── courseid_82890_participants.csv # Must be created (see next cell)
+├── output/
+└── scanned_exams/
+```
+
+Variables to modify:
+
+```{r variables, include=FALSE}
+# Ruta base del proyecto
+BASE_DIR <- "./"
+
+# Archivos de entrada: un pdf con todos los escaneos
+INPUT_PDF <- file.path(BASE_DIR, "examenes.pdf")
+
+# CSV con los alumnos exportado desde el aula virtual y modificado a mano 
+# para incluir columnas: id (username) y registration (DNI, o lo que hayan puesto en la hoja)
+COURSE_FILE <- file.path(BASE_DIR, "courseid_82890_participants.csv")
+```
+
+Constants:
+
+```{r}
+# Rutas principales (relativas a BASE_DIR) 
+OUTPUT_DIR <- file.path(BASE_DIR, "output")
+SCANNED_DIR <- file.path(BASE_DIR, "scanned_exams")
+
+# Archivos específicos
+REGISTER_FILE <- file.path(BASE_DIR, "registro.csv")
+SOLUTIONS_FILE <- file.path(OUTPUT_DIR, "exam.rds")
+RESULTS_FILE <- file.path(BASE_DIR, "resultados_examen")
+
+# Configuración de escaneo
+SCAN_THRESHOLD <- c(0.04, 0.42)
+
+# Configuración de evaluación
+EVAL_PARTIAL <- TRUE
+PENALTY <- -1/3       # Penalización por respuesta incorrecta
+```
+
+## Requisitos Previos
+
+```{r requirements, eval=FALSE}
+# Instalación de paquetes necesarios
+if (!require("exams")) install.packages("exams")
+if (!require("png")) install.packages("png")
+if (!require("qpdf")) install.packages("qpdf")
+if (!require("magick")) install.packages("magick")
+```
+
+- R instalado (https://www.r-project.org/)
+- Paquete R/exams instalado (`install.packages("exams")`)
+- Escáner o dispositivo para digitalizar los exámenes
+- Exámenes completados por los estudiantes
+
+## Proceso de Autocorrección
+
+### 1. Preparación de los Exámenes
+
+Los exámenes deben ser completados por los estudiantes siguiendo estas instrucciones:
+- Usar bolígrafo negro o azul oscuro para marcar las respuestas
+- Rellenar completamente los círculos correspondientes a las respuestas elegidas
+- Escribir su número de DNI en el campo de registro
+- No doblar ni dañar la hoja de respuestas
+
+### 2. Escaneo de los Exámenes
+
+1. Escanear todos los exámenes completados como archivos PDF
+2. Configuración recomendada para el escáner:
+   - Resolución: `r SCAN_DPI` DPI
+   - Modo: Blanco y negro (no escala de grises)
+   - Formato: PDF (un archivo por examen)
+3. Guardar los archivos escaneados en una carpeta dedicada (`r SCANNED_DIR`)
+
+### 3. Procesamiento de los Exámenes Escaneados
+
+#### 3.1. División de PDFs
+
+Si tienes un único PDF con múltiples páginas, puedes dividirlo en PDFs individuales usando el siguiente código:
+
+```{r split_pdf, eval=FALSE}
+# Función para dividir PDFs
+split_pdf <- function(input_pdf = INPUT_PDF, output_dir = SCANNED_DIR) {
+  # Verificar que el archivo de entrada existe
+  if (!file.exists(input_pdf)) {
+    stop(sprintf("El archivo %s no existe", input_pdf))
+  }
+  
+  # Crear directorio de salida si no existe
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+  }
+  
+  # Obtener el número de páginas
+  pdf_info <- qpdf::pdf_length(input_pdf)
+  
+  # Limpiar directorio de salida si contiene archivos anteriores
+  existing_files <- list.files(output_dir, pattern = "exam_.*\\.pdf$", full.names = TRUE)
+  if (length(existing_files) > 0) {
+    message("Limpiando archivos PDF existentes en el directorio de salida...")
+    file.remove(existing_files)
+  }
+  
+  # Dividir cada página en un PDF separado
+  message(sprintf("Iniciando división de %d páginas...", pdf_info))
+  for (page in 1:pdf_info) {
+    output_file <- file.path(output_dir, sprintf("exam_%03d.pdf", page))
+    qpdf::pdf_subset(input_pdf, pages = page, output = output_file)
+    message(sprintf("Página %d/%d procesada", page, pdf_info))
+  }
+  
+  message(sprintf("PDF dividido exitosamente en %d archivos individuales en %s", 
+                 pdf_info, output_dir))
+}
+
+# Ejecutar la división automáticamente
+split_pdf()
+```
+
+#### 3.2. Escaneo de los Exámenes
+
+```{r scan_exams, eval=FALSE}
+# Cargar el paquete exams
+library("exams")
+
+# Escanear los exámenes
+nops_scan(
+  dir = SCANNED_DIR,           # Carpeta con los PDFs escaneados
+  threshold = SCAN_THRESHOLD,  # Valores del umbral
+  verbose = TRUE,             # Mostrar información detallada
+  rotate = FALSE              # No rotar automáticamente las imágenes
+)
+```
+
+Este comando generará un archivo CSV (`nops_scan.csv`) con la información de los exámenes escaneados.
+
+### 4. Evaluación de los Exámenes
+
+```{r evaluate_exams, eval=FALSE}
+# Leer el CSV actual
+datos <- read.csv(COURSE_FILE, sep=",")
+
+# Crear nuevo dataframe con las columnas requeridas
+datos_corregidos <- data.frame(
+    registration = sprintf("%08d", as.numeric(datos$registration)),
+    name = paste(datos$Nom, datos$Cognoms),
+    id = datos$id
+)
+
+# Guardar el nuevo CSV con el formato correcto
+write.table(
+    datos_corregidos,
+    file = REGISTER_FILE,
+    sep = ";",
+    row.names = FALSE,
+    quote = FALSE,
+    fileEncoding = "UTF-8"
+) 
+
+# Evaluar los exámenes
+nops_eval(
+    register = REGISTER_FILE,
+    solutions = SOLUTIONS_FILE,
+    scans = list.files(SCANNED_DIR, pattern = "\\.zip$", full.names = TRUE)[1],
+    results = RESULTS_FILE,
+    language = "es",
+    eval = exams_eval(partial = EVAL_PARTIAL, negative = PENALTY)
+)
+
+# Recalcular la nota final como puntos/44
+resultados <- read.csv(paste0(RESULTS_FILE, ".csv"), sep=";")
+write.csv(data.frame(
+    registration = resultados$registration,
+    name = resultados$name,
+    points = resultados$points,
+    mark = resultados$points * 10 / 44  # Convertir a nota sobre 10
+), paste0(RESULTS_FILE, "_corrected44.csv"), row.names = FALSE)
+```
+
+### 5. Resultados de la Evaluación
+
+El proceso de evaluación generará varios archivos:
+
+- `resultados_evaluacion.csv`: Archivo CSV con las puntuaciones de cada estudiante
+- `resultados_evaluacion.rds`: Archivo R con datos detallados de la evaluación
+- `resultados_evaluacion-*.pdf`: Informes individuales para cada estudiante (si se solicita)
+
+### 6. Análisis de los Resultados
+
+```{r analyze_results, eval=FALSE}
+# Cargar los resultados
+resultados <- readRDS(paste0(RESULTS_FILE, ".rds"))
+
+# Ver estadísticas básicas
+summary(resultados$points)
+
+# Histograma de puntuaciones
+hist(resultados$points, breaks = 10, main = "Distribución de Puntuaciones", 
+     xlab = "Puntuación", col = "lightblue")
+
+# Análisis por pregunta
+pregunta_analisis <- colMeans(resultados$results)
+barplot(pregunta_analisis, main = "Tasa de Acierto por Pregunta", 
+        xlab = "Pregunta", ylab = "Proporción de Aciertos", col = "lightgreen")
+```
+
+## Solución de Problemas
+
+### Problemas de Reconocimiento
+
+Si el sistema no reconoce correctamente algunas marcas:
+
+1. Ajustar los umbrales en la función `nops_scan()`:
+   ```r
+   nops_scan(dir = SCANNED_DIR, threshold = c(0.03, 0.97))
+   ```
+
+2. Verificar la calidad del escaneo:
+   - Asegurar que el contraste es adecuado
+   - Comprobar que las hojas están correctamente alineadas
+   - Evitar sombras o manchas en el papel
+
+### Corrección Manual
+
+Si es necesario corregir manualmente algunas respuestas:
+
+1. Editar el archivo `nops_scan.csv` con un editor de texto o Excel
+2. Modificar las respuestas marcadas según sea necesario
+3. Guardar el archivo y volver a ejecutar `nops_eval()`
+
+## Referencias
+
+- Documentación oficial de R/exams: http://www.r-exams.org/
+- Tutorial específico para NOPS: http://www.r-exams.org/tutorials/exams2nops/
+- Evaluación de exámenes NOPS: http://www.r-exams.org/tutorials/nops_eval/ 
+
+## Ejemplo de correo para el envío de los exámenes:
+
+Hola [:firstname:],
+
+Te adjunto en html la plantilla de corrección de tu examen, para que puedas ver tus errores y comprobar si el sistema automatizado lo ha corregido sin incidencia.
+
+Tras realizar el examen se ha detectado que la pregunta 37 (¿Respecto del modelo local y centralizado de privacidad diferencial, cuál de las siguientes afirmaciones no es cierta?) tenía dos posibles respuestas correctas, lo cual podía dar lugar a confusión, y se ha decidido elimarla del cómputo de la nota.
+
+Por tanto, la nota del examen se calcula como Puntos / 44 (ignora por favor el campo que pone Nota en el html adjunto, ya que su valor es incorrecto)
+
+Un saludo cordial,
+Oscar Pellicer.

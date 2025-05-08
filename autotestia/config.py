@@ -70,7 +70,7 @@ DEFAULT_LANGUAGE = "Spanish"
 # --- Prompting ---
 # Basic prompt templates (can be refined)
 GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context.
+You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. If you generate any piece of code, pseudocode or use special characters, enclose them in backticks: `code`.
 For each question, generate:
 - The question text.
 - The correct answer.

@@ -10,6 +10,7 @@ from .input_parser import parser
 from .agents.generator import QuestionGenerator
 from .agents.reviewer import QuestionReviewer
 from .output_formatter import markdown_writer, converters
+from .rexams import wrapper as rexams_wrapper # ADD THIS IMPOR
 
 class AutoTestIAPipeline:
     """Orchestrates the AutoTestIA question generation process."""
@@ -65,12 +66,14 @@ class AutoTestIAPipeline:
             extract_images_from_doc: bool = False,
             skip_manual_review: bool = False,
             language: str = config.DEFAULT_LANGUAGE,
-            use_llm_review: Optional[bool] = None, # Added back
-            generator_instructions: Optional[str] = None, # New arg
-            reviewer_instructions: Optional[str] = None,  # New arg
-            shuffle_questions_seed: Optional[int] = None, # New arg
-            shuffle_answers_seed: Optional[int] = 0,      # New arg (0 default means random shuffle)
-            num_final_questions: Optional[int] = None     # New arg
+            use_llm_review: Optional[bool] = None,
+            generator_instructions: Optional[str] = None,
+            reviewer_instructions: Optional[str] = None,
+            shuffle_questions_seed: Optional[int] = None,
+            shuffle_answers_seed: Optional[int] = 0,
+            num_final_questions: Optional[int] = None,
+            rexams_title: Optional[str] = None,
+            rexams_course: Optional[str] = None
             ) -> str:
         """
         Runs the AutoTestIA pipeline.
@@ -94,6 +97,8 @@ class AutoTestIAPipeline:
             shuffle_questions_seed: Seed for shuffling the final question order. None means no shuffle.
             shuffle_answers_seed: Seed for shuffling answers within questions. 0 means shuffle randomly each run, None means no shuffle (default uses 0).
             num_final_questions: Number of questions to select randomly from the final set. None means use all.
+            rexams_title: Custom title for R/exams PDF output. If None, R script default is used.
+            rexams_course: Custom course name for R/exams PDF output. If None, R script default is used.
 
         Returns:
             The path to the intermediate Markdown file.
@@ -382,9 +387,9 @@ class AutoTestIAPipeline:
             output_formats = ['moodle_xml', 'gift'] # Default formats
 
         # Ensure output directory exists relative to the *parsed* MD file
-        output_dir = os.path.dirname(markdown_file_for_conversion)
-        if not output_dir: output_dir = "." # Handle case where MD file is in current dir
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir_for_conversions = os.path.dirname(markdown_file_for_conversion)
+        if not output_dir_for_conversions: output_dir_for_conversions = "." # Handle case where MD file is in current dir
+        os.makedirs(output_dir_for_conversions, exist_ok=True)
 
         # Define base filename from the markdown file (without extension)
         base_filename = os.path.splitext(os.path.basename(markdown_file_for_conversion))[0]
@@ -394,29 +399,66 @@ class AutoTestIAPipeline:
         # as shuffling is now handled centrally in the pipeline.
 
         if 'moodle_xml' in output_formats:
-            moodle_path = os.path.join(output_dir, f"{base_filename}_moodle.xml")
-            converters.convert_to_moodle_xml(questions_for_conversion, moodle_path) # Removed shuffle_answers_seed
+            moodle_path = os.path.join(output_dir_for_conversions, f"{base_filename}_moodle.xml")
+            converters.convert_to_moodle_xml(questions_for_conversion, moodle_path) 
             conversion_performed = True
 
         if 'gift' in output_formats:
-            gift_path = os.path.join(output_dir, f"{base_filename}.gift")
-            converters.convert_to_gift(questions_for_conversion, gift_path) # Removed shuffle_answers_seed
+            gift_path = os.path.join(output_dir_for_conversions, f"{base_filename}.gift")
+            converters.convert_to_gift(questions_for_conversion, gift_path) 
             conversion_performed = True
 
         if 'wooclap' in output_formats:
             # Use the updated default extension from config
-            wooclap_path = os.path.join(output_dir, f"{base_filename}_wooclap.csv")
-            converters.convert_to_wooclap(questions_for_conversion, wooclap_path) # Removed shuffle_answers_seed
+            wooclap_path = os.path.join(output_dir_for_conversions, f"{base_filename}_wooclap.csv")
+            converters.convert_to_wooclap(questions_for_conversion, wooclap_path) 
             conversion_performed = True
 
         if 'rexams' in output_formats:
-            # R/exams output is a directory based on the base filename
-            rexams_dir_path = os.path.join(output_dir, f"{base_filename}_rexams")
-            converters.prepare_for_rexams(questions_for_conversion, rexams_dir_path) # Removed shuffle_answers_seed
-            conversion_performed = True
+            # Step 1: Prepare .Rmd files
+            rexams_rmd_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_rexams_rmd")
+            converters.prepare_for_rexams(questions_for_conversion, rexams_rmd_dir)
+            conversion_performed = True 
+
+            # Step 2: Call the R script wrapper
+            rexams_pdf_output_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_rexams_pdf_output")
+            logging.info(f"Attempting to generate R/exams PDF exams from {rexams_rmd_dir} into {rexams_pdf_output_dir}")
+            
+            # Prepare custom parameters for R script
+            # Start with params from main config (e.g., seed, potentially n_models if set there)
+            r_exam_custom_params = self.current_config.get("rexams_params", {}).copy()
+            
+            # CLI overrides for title and course (pass to R script if not None)
+            if rexams_title is not None:
+                r_exam_custom_params["exam-title"] = rexams_title
+            if rexams_course is not None:
+                r_exam_custom_params["course"] = rexams_course
+            
+            # Determine num_models: CLI could also override this if we add an arg for it
+            # For now, it can be set in the rexams_params in config.py or defaults to 4
+            num_exam_models = int(r_exam_custom_params.get("n_models", 4))
+            # If n_models was also part of CLI, it would be:
+            # if "n_models_cli_arg" in r_exam_custom_params: # Assuming it was added from CLI
+            #    num_exam_models = int(r_exam_custom_params["n_models_cli_arg"])
+
+
+            success = rexams_wrapper.generate_rexams_pdfs(
+                questions_input_dir=rexams_rmd_dir,
+                exams_output_dir=rexams_pdf_output_dir,
+                language_str=language,
+                num_models=num_exam_models,
+                custom_r_params=r_exam_custom_params 
+            )
+            
+            if success:
+                logging.info(f"R/exams PDF generation successful. Output in {rexams_pdf_output_dir}")
+                print(f"R/exams PDF outputs generated in: {os.path.abspath(rexams_pdf_output_dir)}")
+            else:
+                logging.error(f"R/exams PDF generation failed for Rmd files in {rexams_rmd_dir}")
+                print(f"Warning: R/exams PDF generation failed. Check logs. Rmd files are available at {os.path.abspath(rexams_rmd_dir)}")
 
         if conversion_performed:
-            print(f"\nConversion outputs generated in directory: {os.path.abspath(output_dir)}")
+            print(f"\nConversion outputs generated in directory: {os.path.abspath(output_dir_for_conversions)}")
         else:
             # This case should be handled by the 'none' check earlier, but as a fallback:
             logging.warning("No conversion formats were specified or matched.")
