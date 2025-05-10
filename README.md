@@ -29,10 +29,6 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
 *   *(Future)* Dynamic Question Support (OE7)
 *   *(Future)* Humorous Distractor Option (OE8)
 
-## Current Status
-
-Core pipeline implemented with support for major LLM providers. Text parsing handles various formats. Image-based generation and LLM review are functional. Output converters for Moodle XML, GIFT, and R/exams structure are implemented. Wooclap is a placeholder. Instruction-based generation, shuffling, and selection are implemented. Error handling is basic.
-
 ## Setup
 
 1.  Clone the repository:
@@ -69,6 +65,22 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
     OPENAI_GENERATOR_MODEL="gpt-4o"
     # etc.
     ```
+6.  **(For R/exams Users) Install R, LaTeX, and Required R Packages:**
+    To utilize the R/exams output format (which produces `.pdf` files) or to use the `autotestia_correct` command for correcting R/exams NOPS scans, you must have R and a LaTeX distribution installed on your system. The helper R scripts also require specific R packages.
+
+    *   **Install R:** Download and install R from [The Comprehensive R Archive Network (CRAN)](https://cran.r-project.org/).
+    *   **Install LaTeX:** A LaTeX distribution is required for R/exams to compile `.Rmd` files into PDF documents.
+        *   We recommend [TinyTeX](https://yihui.org/tinytex/), a lightweight and easy-to-install LaTeX distribution. You can install it from within R by first installing the `tinytex` R package (`install.packages("tinytex")`) and then running `tinytex::install_tinytex()`.
+        *   Alternatively, you can use other LaTeX distributions like MiKTeX (Windows), MacTeX (macOS), or TeX Live (Linux).
+    *   **Install Required R Packages:** After installing R, open the R console and install the following packages. While the provided R scripts (`generate_exams.R` and `run_autocorrection.R`) attempt to install missing packages, it's best to install them beforehand:
+        ```R
+        install.packages(c("exams", "optparse", "knitr", "qpdf"))
+        ```
+        *   `exams`: The core package for all R/exams functionality.
+        *   `optparse`: Used by the helper R scripts for parsing command-line arguments.
+        *   `knitr`: Used by `generate_exams.R` for processing R Markdown files.
+        *   `qpdf`: Used by `run_autocorrection.R` for splitting PDF files containing scanned exams.
+        *   The `autotestia_correct` command's documentation and examples also remind you of its specific R package requirements.
 
 ## Usage
 

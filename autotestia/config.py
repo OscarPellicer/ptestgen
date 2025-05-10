@@ -47,7 +47,7 @@ REVIEWER_MODEL = REVIEWER_MODEL_MAP.get(LLM_PROVIDER, "stub-reviewer-model")
 DEFAULT_NUM_QUESTIONS = 5
 DEFAULT_NUM_OPTIONS = 4 # Including the correct answer
 # Flag to enable LLM-based review (can be overridden by CLI arg)
-DEFAULT_LLM_REVIEW_ENABLED = False
+DEFAULT_LLM_REVIEW_ENABLED = True
 
 # --- Reviewer Criteria (Example) ---
 # These would be used by the reviewer agent (OE2)

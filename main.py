@@ -2,8 +2,8 @@ import argparse
 import os
 import sys
 from dotenv import load_dotenv
-import logging # Import logging
-import random # Add random import
+import logging
+import random
 
 # Load .env file BEFORE importing config or pipeline
 # This ensures environment variables are set when config is loaded

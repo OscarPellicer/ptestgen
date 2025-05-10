@@ -3,6 +3,7 @@ from typing import List, Optional
 import logging # Import logging
 import sys # Import sys for stderr
 import random # Import random
+import shutil # ADD THIS IMPORT
 
 from . import config
 from .schemas import Question
@@ -417,6 +418,28 @@ class AutoTestIAPipeline:
         if 'rexams' in output_formats:
             # Step 1: Prepare .Rmd files
             rexams_rmd_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_rexams_rmd")
+
+            # Check if rexams_rmd_dir exists and ask for deletion
+            if os.path.exists(rexams_rmd_dir):
+                print(f"Warning: R/exams Rmd directory '{rexams_rmd_dir}' already exists.")
+                user_input = input(f"Do you want to delete the existing directory '{rexams_rmd_dir}' and continue? (yes/no): ").strip().lower()
+                if user_input == 'yes':
+                    try:
+                        shutil.rmtree(rexams_rmd_dir)
+                        logging.info(f"Deleted existing R/exams Rmd directory: {rexams_rmd_dir}")
+                        print(f"Successfully deleted '{rexams_rmd_dir}'. It will be recreated for Rmd file preparation.")
+                    except Exception as e:
+                        logging.error(f"Failed to delete directory {rexams_rmd_dir}: {e}. Attempting to proceed anyway.")
+                        print(f"Error: Could not delete directory {rexams_rmd_dir}. Will attempt Rmd preparation into the existing directory.", file=sys.stderr)
+                else:
+                    logging.info(f"User chose not to delete existing R/exams Rmd directory '{rexams_rmd_dir}'. Proceeding with existing directory.")
+                    print(f"Proceeding with Rmd preparation into the existing directory '{rexams_rmd_dir}'. Files may be overwritten.")
+            
+            # Ensure the rexams_rmd_dir exists before preparing Rmd files.
+            # If it was deleted, it's recreated. If it existed and wasn't deleted, this does nothing.
+            # If it didn't exist initially, it's created.
+            os.makedirs(rexams_rmd_dir, exist_ok=True)
+            
             converters.prepare_for_rexams(questions_for_conversion, rexams_rmd_dir)
             conversion_performed = True 
 
@@ -424,23 +447,18 @@ class AutoTestIAPipeline:
             rexams_pdf_output_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_rexams_pdf_output")
             logging.info(f"Attempting to generate R/exams PDF exams from {rexams_rmd_dir} into {rexams_pdf_output_dir}")
             
+            # Ensure the PDF output directory exists. No prompt here, just create if not present.
+            os.makedirs(rexams_pdf_output_dir, exist_ok=True)
+
             # Prepare custom parameters for R script
-            # Start with params from main config (e.g., seed, potentially n_models if set there)
             r_exam_custom_params = self.current_config.get("rexams_params", {}).copy()
             
-            # CLI overrides for title and course (pass to R script if not None)
             if rexams_title is not None:
                 r_exam_custom_params["exam-title"] = rexams_title
             if rexams_course is not None:
                 r_exam_custom_params["course"] = rexams_course
             
-            # Determine num_models: CLI could also override this if we add an arg for it
-            # For now, it can be set in the rexams_params in config.py or defaults to 4
             num_exam_models = int(r_exam_custom_params.get("n_models", 4))
-            # If n_models was also part of CLI, it would be:
-            # if "n_models_cli_arg" in r_exam_custom_params: # Assuming it was added from CLI
-            #    num_exam_models = int(r_exam_custom_params["n_models_cli_arg"])
-
 
             success = rexams_wrapper.generate_rexams_pdfs(
                 questions_input_dir=rexams_rmd_dir,
@@ -454,8 +472,9 @@ class AutoTestIAPipeline:
                 logging.info(f"R/exams PDF generation successful. Output in {rexams_pdf_output_dir}")
                 print(f"R/exams PDF outputs generated in: {os.path.abspath(rexams_pdf_output_dir)}")
             else:
-                logging.error(f"R/exams PDF generation failed for Rmd files in {rexams_rmd_dir}")
+                logging.error(f"R/exams PDF generation failed for Rmd files in {rexams_rmd_dir}. Output directory: {rexams_pdf_output_dir}")
                 print(f"Warning: R/exams PDF generation failed. Check logs. Rmd files are available at {os.path.abspath(rexams_rmd_dir)}")
+
 
         if conversion_performed:
             print(f"\nConversion outputs generated in directory: {os.path.abspath(output_dir_for_conversions)}")
