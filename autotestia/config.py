@@ -70,7 +70,7 @@ DEFAULT_LANGUAGE = "Spanish"
 # --- Prompting ---
 # Basic prompt templates (can be refined)
 GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. If you generate any piece of code, pseudocode or use special characters, enclose them in backticks: `code`.
+You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. If the question or the answer or the distractors contain any piece of code, pseudocode or use special characters, enclose it in backticks: `code`.
 For each question, generate:
 - The question text.
 - The correct answer.
@@ -101,6 +101,7 @@ Review the following question based on clarity, correctness, plausibility of dis
 Take special care to ensure that all options are of similar length, and that the level of complexity of the wrong answers is similar to that of the correct answer.
 Make sure that neither the correct answer nor the distractors end with a period.
 If possible, avoid absolutes in the confounders, such as: never, always, exclusively, etc.
+If the question or the answer or the distractors contain any piece of code, pseudocode or use special characters, enclose it in backticks: `code`.
 
 {custom_reviewer_instructions}
 

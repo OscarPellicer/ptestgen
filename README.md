@@ -37,7 +37,7 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
 
 1.  Clone the repository:
     ```bash
-    git clone <repository-url>
+    git clone https://github.com/OscarPellicer/AutoTestIA.git
     cd AutoTestIA
     ```
 2.  (Recommended) Create and activate a virtual environment:
@@ -46,14 +46,10 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
     # On Windows: venv\Scripts\activate
     # On macOS/Linux: source venv/bin/activate
     ```
-3.  Install required dependencies:
+3.  Install required dependencies and the package in editable mode:
     ```bash
-    # Core dependencies
-    pip install -r requirements.txt
-
-    # Optional: For parsing PDF, DOCX, PPTX, RTF files, Pillow is also needed
-    # These are included in requirements.txt but you can install separately:
-    # pip install pypdf python-docx python-pptx striprtf Pillow
+    # Core dependencies will be installed by the next command
+    pip install -e .
     ```
 4.  **Configure API Keys:**
     *   Rename the `.env.example` file to `.env`.
@@ -66,7 +62,7 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
     REPLICATE_API_TOKEN="r8_..."
     ```
     *   **IMPORTANT:** Do not commit the `.env` file to version control. The `.gitignore` file is configured to prevent this.
-5.  (Optional) You can set the default provider and models directly in the `.env` file as well:
+5.  (Optional) You can set the default provider and models directly in the `.env` file as well (though this can also be done via arguments when running `autotestia`):
     ```dotenv
     # Optional defaults in .env
     LLM_PROVIDER="openai"
@@ -76,32 +72,38 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
 
 ## Usage
 
-**Modes:**
+**Commands:**
+
+*   `autotestia`: Main command to generate questions from documents or instructions.
+*   `autotestia_split`: Command to split an existing Markdown question file into multiple smaller files.
+*   `autotestia_correct`: Command to correct R/exams NOPS scans.
+
+### `autotestia`: Generate questions from a document or instructions
 
 1.  **Generate from Document:**
     ```bash
-    python main.py <input_material_path> [options]
+    autotestia <input_material_path> [options]
     ```
     Use this mode to generate questions from a source document.
 
 2.  **Generate from Instructions:**
     ```bash
-    python main.py --generator-instructions "Create questions about..." [options]
+    autotestia --generator-instructions "Create questions about..." [options]
     ```
     Use this mode when you don't have a specific document but want to generate questions based on a topic or instructions. The `input_material_path` argument is omitted.
 
 3.  **Resume from Markdown:**
     ```bash
-    python main.py --resume-from-md <existing_markdown_path> [options]
+    autotestia --resume-from-md <existing_markdown_path> [options]
     ```
     Use this mode to continue processing from an existing intermediate Markdown file (e.g., after manual review or if the process was interrupted). This skips the initial generation, LLM review, and manual review steps.
 
-**Examples:**
+#### Examples for `autotestia`
 
 1.  **Generate 5 questions using OpenAI from a text file, output to default paths, request Moodle XML and GIFT:**
     ```bash
     # Make sure OPENAI_API_KEY is in .env
-    python main.py path/to/your/notes.txt -n 5
+    autotestia path/to/your/notes.txt -n 5
     ```
     *   Creates `output/questions.md`. Press Enter after reviewing (unless `--skip-manual-review`).
     *   Then creates `output/moodle_questions.xml` and `output/gift_questions.gift`.
@@ -109,7 +111,7 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
 2.  **Generate 3 questions using Google Gemini, include an image, enable LLM review, skip manual review, output R/exams format:**
     ```bash
     # Make sure GOOGLE_API_KEY is in .env
-    python main.py course_material.txt -n 3 -i diagram.png --provider google --use-llm-review --skip-manual-review -f rexams -o generated/google_review.md
+    autotestia course_material.txt -n 3 -i diagram.png --provider google --use-llm-review --skip-manual-review -f rexams -o generated/google_review.md
     ```
     *   Creates `generated/google_review.md`.
     *   Immediately creates R/exams files in `generated/rexams/`.
@@ -117,29 +119,32 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
 3.  **Generate 10 questions based *only* on instructions using Anthropic, shuffle questions and answers (fixed seed), select 5 final questions, output to GIFT:**
     ```bash
     # Make sure ANTHROPIC_API_KEY is in .env
-    python main.py --generator-instructions "Generate multiple-choice questions about the main features of Python 3.12." -n 10 --provider anthropic --shuffle-questions 42 --shuffle-answers 42 --num-final-questions 5 -f gift -o output/python_features.md
+    autotestia --generator-instructions "Generate multiple-choice questions about the main features of Python 3.12." -n 10 --provider anthropic --shuffle-questions 42 --shuffle-answers 42 --num-final-questions 5 -f gift -o output/python_features.md
     ```
     *   Creates `output/python_features.md` (containing 10 questions).
     *   Creates `output/python_features.gift` (containing 5 randomly selected, shuffled questions).
 
 4.  **Generate only the intermediate Markdown file from a PDF, adding custom instructions:**
     ```bash
-    python main.py study_guide.pdf -n 15 -f none -o draft_questions.md --generator-instructions "Focus on chapter 3."
+    autotestia study_guide.pdf -n 15 -f none -o draft_questions.md --generator-instructions "Focus on chapter 3."
     ```
     *   Creates `draft_questions.md` and stops.
 
 5.  **Resume processing from a previously generated/edited Markdown file, shuffle questions (random seed), convert to GIFT:**
     ```bash
-    python main.py --resume-from-md draft_questions.md -f gift --shuffle-questions
+    autotestia --resume-from-md draft_questions.md -f gift --shuffle-questions
     ```
     *   Parses `draft_questions.md`.
     *   Creates `draft_questions.gift` in the same directory containing all questions from the MD file but in a shuffled order.
 
-**Command Line Options:**
+#### Command Line Options for `autotestia`
 
 *   **Input Control:**
-    *   `input_material`: (Optional) Path to the input file (e.g., `.txt`, `.pdf`) for *new generation*. If omitted, generation relies on `--generator-instructions`. Cannot be used with `--resume-from-md`.
-    *   `--resume-from-md`: Path to an existing intermediate Markdown file to *resume processing from* (skips generation and initial review steps). Cannot be used with `input_material`.
+    *   `input_material`: (Optional) Path to the input file (e.g., `.txt`, `.pdf`) for *new generation*. If omitted, generation relies on 
+    `--generator-instructions`. Cannot be used with `--resume-from-md`.
+    *   `--resume-from-md`: Path to an existing intermediate Markdown file to *resume processing from* (skips generation and initial review steps). 
+    Cannot be used with `input_material`.
+
 *   **Generation Input & Control (Ignored if resuming):**
     *   `--generator-instructions`: Custom instructions to add to the generator prompt. Essential if `input_material` is omitted.
     *   `--reviewer-instructions`: Custom instructions to add to the reviewer prompt (if LLM review is enabled).
@@ -154,27 +159,36 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
     *   `--extract-doc-images`: [Experimental] Attempt to extract images from documents (requires `input_material`).
     *   `--language`: Language for questions (default: `en`).
 *   **Output & Formatting Control:**
-    *   `-f`, `--formats`: Final output format(s) (choices: `moodle_xml`, `gift`, `wooclap`, `rexams`, `none`. Default: `moodle_xml gift`). Use `none` to only output the intermediate Markdown.
-    *   `--shuffle-questions [SEED]`: Shuffle the order of questions after Markdown parsing. Provide an optional integer seed for reproducibility. If seed is omitted, uses a random seed.
-    *   `--shuffle-answers [SEED]`: Shuffle the order of answers within each question. Provide an optional integer seed. If omitted or 0, shuffles randomly per run.
+    *   `-f`, `--formats`: Final output format(s) (choices: `moodle_xml`, `gift`, `wooclap`, `rexams`, `none`. Default: `moodle_xml gift`). Use `none` to 
+    only output the intermediate Markdown.
+    *   `--shuffle-questions [SEED]`: Shuffle the order of questions after Markdown parsing. Provide an optional integer seed for reproducibility. If 
+    seed is omitted, uses a random seed.
+    *   `--shuffle-answers [SEED]`: Shuffle the order of answers within each question. Provide an optional integer seed. If omitted or 0, shuffles 
+    randomly per run.
     *   `--num-final-questions N`: Randomly select `N` questions from the final set (after potential shuffling). If omitted, all questions are used.
 *   **General Options:**
     *   `--log-level`: Set logging verbosity (choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, default: `WARNING`).
 
-**R/exams Options:**
+*   **R/exams Options:**
+    *   `--rexams-title`: Custom title for R/exams PDF output. If not set, uses R script's default.
+    *   `--rexams-course`: Custom course name for R/exams PDF output. If not set, uses R script's default.
 
-*   `--rexams-title`: Custom title for R/exams PDF output. If not set, uses R script's default.
-*   `--rexams-course`: Custom course name for R/exams PDF output. If not set, uses R script's default.
+### `autotestia_split`: Split a question file into multiple smaller files
 
-**Correcting R/exams NOPS Scans:**
+Split `all_questions.md` into three files: the first with 10 questions, the second with 25% of the total questions (shuffled), and the third with all remaining questions. Output files will be named `all_questions_1.md`, `all_questions_2.md`, etc., in the `output/custom_splits` directory.
+```bash
+autotestia_split all_questions.md --splits 10 0.25 -1 --output-dir output/custom_splits --shuffle-questions 123
+```
 
-The `autotestia/rexams/correct_exams.py` script provides a command-line interface to automate the correction of scanned R/exams NOPS answer sheets. It wraps an R script (`run_autocorrection.R`) that performs the core operations: PDF splitting (optional), scanning marks using `nops_scan()`, preparing student registration data, and evaluating exams using `nops_eval()`.
+### `autotestia_correct`: Correct R/exams NOPS Scans
 
-**Example:**
+The `autotestia_correct` command (wrapping `autotestia/rexams/correct_exams.py`) provides a command-line interface to automate the correction of scanned R/exams NOPS answer sheets. It wraps an R script (`run_autocorrection.R`) that performs the core operations: PDF splitting (optional), scanning marks using `nops_scan()`, preparing student registration data, and evaluating exams using `nops_eval()`.
+
+#### Example for `autotestia_correct`:
 
 ```bash
 # Ensure R and necessary R packages (exams, qpdf, optparse) are installed.
-python autotestia/rexams/correct_exams.py \
+autotestia_correct \
     --all-scans-pdf path/to/your/all_scans_concatenated.pdf \
     --split-pages \
     --scans-dir ./scanned_exam_pages \
@@ -194,7 +208,7 @@ This command would:
 5.  Save results (e.g., `exam_results.csv`, `exam_results.rds`, `exam_results_scaled_to_10.csv`) in `./correction_output/`.
 6.  Scale the marks based on a maximum possible score of 45 to a new scale up to 10.
 
-**Key Command Line Options for `correct_exams.py`:**
+#### Command Line Options for `autotestia_correct`:
 
 *   **Input Files/Directories:**
     *   `--all-scans-pdf`: Path to a single PDF containing all scanned exam sheets (required if `--split-pages` is used).
@@ -226,11 +240,13 @@ This command would:
     *   `--student-csv-encoding`: Encoding of your input student CSV file (default: `UTF-8`).
     *   `--registration-format`: `sprintf`-style format string for the registration number (default: `"%08s"`).
 
-## Next Steps
+## Next Steps / TODO
 
 *   Test all the output formats (only Wooclap and R/Exams have been tested so far)
 *   Test robust parsing for PDF, DOCX in `input_parser/parser.py` (only PPTX and text formats have been tested so far)
+*   Test image extraction from documents
+*   Test passing custom images for questions
 *   Develop evaluation metrics and agent (OE6).
 *   Explore dynamic questions (OE7) and humorous distractors (OE8).
 *   Consider adding support for self-hosted models.
-*   Refactor shared LLM logic (client init, retry, parsing) into a utility module.
+*   Refactor, e.g. shared LLM logic (client init, retry, parsing) into a utility module.
