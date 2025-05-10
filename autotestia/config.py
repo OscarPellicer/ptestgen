@@ -104,7 +104,7 @@ If possible, avoid absolutes in the confounders, such as: never, always, exclusi
 
 {custom_reviewer_instructions}
 
-Provide scores for difficulty and quality between 0.0 (extremely easy / worst quality) and 1.0 (extremely challenging / excellent quality).
+Provide scores for difficulty (0.0 = extremely easy, 1.0 = extremely difficult) and quality (0.0 = extremely poor quality, 1.0 = excellent quality).
 Finally, if changes are needed, provide the corrected question (including the question text, the correct answer and the confounders) in the same JSON format as the input question, under the key "reviewed_question".
 
 Input Question (JSON format):

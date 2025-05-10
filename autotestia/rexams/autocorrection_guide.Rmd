@@ -1,11 +1,11 @@
 ---
-title: "Guía de Autocorrección de Exámenes con R/exams"
+title: "Guide to Auto-Correction of Exams with R/exams"
 output: html_document
 ---
 
-# Guía de Autocorrección de Exámenes con R/exams
+# Guide to Auto-Correction of Exams with R/exams
 
-Este documento proporciona instrucciones detalladas sobre cómo realizar la autocorrección de exámenes generados con R/exams en formato NOPS.
+This document provides detailed instructions on how to perform auto-correction of exams generated with R/exams in NOPS format.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -15,251 +15,319 @@ Expected file structure:
 
 ```{none}
 ./ # Root path
-├── examenes.pdf # Must be created (see next cell)
-├── courseid_82890_participants.csv # Must be created (see next cell)
-├── output/
-└── scanned_exams/
+├── all_scans.pdf # Contains all scanned exam sheets (if splitting is needed)
+├── student_data.csv # CSV with student information
+├── output_exams/ # Directory where exam.rds (solutions) is located
+│   └── exam.rds
+├── scanned_pages/ # Directory for individual scanned exam pages
+└── correction_results/ # Directory for correction outputs
 ```
 
-Variables to modify:
+Variables to modify (example values, will be script parameters):
 
-```{r variables, include=FALSE}
-# Ruta base del proyecto
-BASE_DIR <- "./"
+```{r variables, include=FALSE, eval=FALSE}
+# Project base path (conceptual for the guide)
+BASE_DIR <- "./" 
 
-# Archivos de entrada: un pdf con todos los escaneos
-INPUT_PDF <- file.path(BASE_DIR, "examenes.pdf")
+# Input files:
+# PDF with all scans (if not pre-split)
+ALL_SCANS_PDF <- file.path(BASE_DIR, "all_scans.pdf") 
+# CSV with student data exported from the virtual classroom and manually modified
+# to include columns like: id (username), registration (ID on sheet), name, surname.
+STUDENT_DATA_CSV <- file.path(BASE_DIR, "student_data.csv")
 
-# CSV con los alumnos exportado desde el aula virtual y modificado a mano 
-# para incluir columnas: id (username) y registration (DNI, o lo que hayan puesto en la hoja)
-COURSE_FILE <- file.path(BASE_DIR, "courseid_82890_participants.csv")
-```
+# Directories:
+# Directory where exam.rds (output of exam generation) is located
+EXAMS_OUTPUT_DIR <- file.path(BASE_DIR, "output_exams") 
+# Directory for individual scanned pages (output of splitting, input for nops_scan)
+SCANNED_PAGES_DIR <- file.path(BASE_DIR, "scanned_pages")
+# Directory for results of the correction process
+CORRECTION_RESULTS_DIR <- file.path(BASE_DIR, "correction_results")
 
-Constants:
+# Specific files (names will be configurable):
+SOLUTIONS_FILE <- file.path(EXAMS_OUTPUT_DIR, "exam.rds") # Path to solutions
+PROCESSED_REGISTER_FILE <- file.path(CORRECTION_RESULTS_DIR, "processed_student_register.csv")
+RESULTS_BASE_NAME <- "exam_correction_results" # Basename for output files
 
-```{r}
-# Rutas principales (relativas a BASE_DIR) 
-OUTPUT_DIR <- file.path(BASE_DIR, "output")
-SCANNED_DIR <- file.path(BASE_DIR, "scanned_exams")
-
-# Archivos específicos
-REGISTER_FILE <- file.path(BASE_DIR, "registro.csv")
-SOLUTIONS_FILE <- file.path(OUTPUT_DIR, "exam.rds")
-RESULTS_FILE <- file.path(BASE_DIR, "resultados_examen")
-
-# Configuración de escaneo
+# Scan configuration
 SCAN_THRESHOLD <- c(0.04, 0.42)
 
-# Configuración de evaluación
+# Evaluation configuration
 EVAL_PARTIAL <- TRUE
-PENALTY <- -1/3       # Penalización por respuesta incorrecta
+PENALTY <- -1/3       # Penalty for incorrect answer
+MAX_RAW_SCORE <- 44    # Example: total points if 44 questions
+SCALE_TO_MARK <- 10    # Example: scale final grade to 10
 ```
 
-## Requisitos Previos
+## Prerequisites
 
 ```{r requirements, eval=FALSE}
-# Instalación de paquetes necesarios
+# Installation of necessary packages
 if (!require("exams")) install.packages("exams")
-if (!require("png")) install.packages("png")
-if (!require("qpdf")) install.packages("qpdf")
-if (!require("magick")) install.packages("magick")
+if (!require("png")) install.packages("png") # exams dependency, often needed
+if (!require("qpdf")) install.packages("qpdf") # For PDF splitting
+if (!require("optparse")) install.packages("optparse") # For command-line R scripts
+# if (!require("magick")) install.packages("magick") # Might be needed by exams for some image operations
 ```
 
-- R instalado (https://www.r-project.org/)
-- Paquete R/exams instalado (`install.packages("exams")`)
-- Escáner o dispositivo para digitalizar los exámenes
-- Exámenes completados por los estudiantes
+- R installed (https://www.r-project.org/)
+- R packages: `exams`, `qpdf`, `optparse` (and their dependencies).
+- Scanner or device to digitize the exams.
+- Completed exam sheets from students.
+- The `exam.rds` file generated during the exam creation phase.
 
-## Proceso de Autocorrección
+## Auto-Correction Process
 
-### 1. Preparación de los Exámenes
+### 1. Splitting Scanned PDFs (Optional)
 
-Los exámenes deben ser completados por los estudiantes siguiendo estas instrucciones:
-- Usar bolígrafo negro o azul oscuro para marcar las respuestas
-- Rellenar completamente los círculos correspondientes a las respuestas elegidas
-- Escribir su número de DNI en el campo de registro
-- No doblar ni dañar la hoja de respuestas
+If you have a single PDF containing multiple exam sheets, you can split it into individual PDF files (one per page).
 
-### 2. Escaneo de los Exámenes
-
-1. Escanear todos los exámenes completados como archivos PDF
-2. Configuración recomendada para el escáner:
-   - Resolución: `r SCAN_DPI` DPI
-   - Modo: Blanco y negro (no escala de grises)
-   - Formato: PDF (un archivo por examen)
-3. Guardar los archivos escaneados en una carpeta dedicada (`r SCANNED_DIR`)
-
-### 3. Procesamiento de los Exámenes Escaneados
-
-#### 3.1. División de PDFs
-
-Si tienes un único PDF con múltiples páginas, puedes dividirlo en PDFs individuales usando el siguiente código:
-
-```{r split_pdf, eval=FALSE}
-# Función para dividir PDFs
-split_pdf <- function(input_pdf = INPUT_PDF, output_dir = SCANNED_DIR) {
-  # Verificar que el archivo de entrada existe
-  if (!file.exists(input_pdf)) {
-    stop(sprintf("El archivo %s no existe", input_pdf))
+```{r split_pdf_example, eval=FALSE}
+# This logic will be part of the run_autocorrection.R script
+# Example function for splitting PDFs:
+split_scans_into_pages <- function(input_pdf_path, output_dir_path, force_overwrite = FALSE) {
+  if (!requireNamespace("qpdf", quietly = TRUE)) {
+    stop("Package 'qpdf' needed for this function to work. Please install it.", call. = FALSE)
   }
-  
-  # Crear directorio de salida si no existe
-  if (!dir.exists(output_dir)) {
-    dir.create(output_dir, recursive = TRUE)
+  if (!file.exists(input_pdf_path)) {
+    stop(sprintf("Input PDF file %s does not exist.", input_pdf_path))
   }
-  
-  # Obtener el número de páginas
-  pdf_info <- qpdf::pdf_length(input_pdf)
-  
-  # Limpiar directorio de salida si contiene archivos anteriores
-  existing_files <- list.files(output_dir, pattern = "exam_.*\\.pdf$", full.names = TRUE)
+  if (!dir.exists(output_dir_path)) {
+    dir.create(output_dir_path, recursive = TRUE)
+    message(sprintf("Created output directory: %s", output_dir_path))
+  }
+
+  num_pages <- qpdf::pdf_length(input_pdf_path)
+  message(sprintf("Input PDF has %d pages.", num_pages))
+
+  existing_files <- list.files(output_dir_path, pattern = "page_.*\\.pdf$", full.names = TRUE)
   if (length(existing_files) > 0) {
-    message("Limpiando archivos PDF existentes en el directorio de salida...")
-    file.remove(existing_files)
+    if (force_overwrite) {
+      message("Forcing overwrite: Removing existing split PDF files in output directory...")
+      file.remove(existing_files)
+    } else {
+      message("Found existing split PDF files. Skipping split. Use --force-split to overwrite.")
+      return(invisible())
+    }
   }
   
-  # Dividir cada página en un PDF separado
-  message(sprintf("Iniciando división de %d páginas...", pdf_info))
-  for (page in 1:pdf_info) {
-    output_file <- file.path(output_dir, sprintf("exam_%03d.pdf", page))
-    qpdf::pdf_subset(input_pdf, pages = page, output = output_file)
-    message(sprintf("Página %d/%d procesada", page, pdf_info))
+  message(sprintf("Starting split of %d pages into %s...", num_pages, output_dir_path))
+  for (page_num in 1:num_pages) {
+    output_file <- file.path(output_dir_path, sprintf("page_%03d.pdf", page_num))
+    qpdf::pdf_subset(input_pdf_path, pages = page_num, output = output_file)
+    if (page_num %% 10 == 0 || page_num == num_pages) { # Progress message
+        message(sprintf("Page %d/%d processed.", page_num, num_pages))
+    }
   }
-  
-  message(sprintf("PDF dividido exitosamente en %d archivos individuales en %s", 
-                 pdf_info, output_dir))
+  message(sprintf("PDF successfully split into %d individual files in %s.",
+                 num_pages, output_dir_path))
 }
 
-# Ejecutar la división automáticamente
-split_pdf()
+# Example usage (parameters would come from CLI in the script):
+# split_scans_into_pages(ALL_SCANS_PDF, SCANNED_PAGES_DIR, force_overwrite = TRUE)
 ```
 
-#### 3.2. Escaneo de los Exámenes
+### 2. Scanning the Exam Sheets
 
-```{r scan_exams, eval=FALSE}
-# Cargar el paquete exams
+Use `nops_scan()` to read the scanned exam sheets (individual PDFs).
+
+```{r scan_exams_example, eval=FALSE}
+# This logic will be part of the run_autocorrection.R script
 library("exams")
 
-# Escanear los exámenes
-nops_scan(
-  dir = SCANNED_DIR,           # Carpeta con los PDFs escaneados
-  threshold = SCAN_THRESHOLD,  # Valores del umbral
-  verbose = TRUE,             # Mostrar información detallada
-  rotate = FALSE              # No rotar automáticamente las imágenes
+# nops_scan parameters would be set by CLI arguments
+# scanned_images_dir <- SCANNED_PAGES_DIR 
+# scan_threshold_values <- SCAN_THRESHOLD
+
+# Ensure the directory for scanned images exists and contains PDFs
+if (!dir.exists(scanned_images_dir) || length(list.files(scanned_images_dir, pattern = "\\.pdf$")) == 0) {
+  stop(sprintf("Scanned images directory '%s' is empty or does not exist. Split PDFs first or check path.", scanned_images_dir))
+}
+
+message(sprintf("Scanning exams from directory: %s", scanned_images_dir))
+# The actual scan command. nops_scan creates a .zip file with image data.
+# The name of this zip file is typically nops_scan_DATETIME.zip
+# The script will need to find this zip file.
+scan_result_zip <- nops_scan(
+  dir = scanned_images_dir,
+  threshold = scan_threshold_values,
+  verbose = TRUE,
+  rotate = FALSE # Usually set to FALSE if scans are consistently oriented
 )
+message(sprintf("Scan complete. Output zip: %s", scan_result_zip))
+
+# This command generates a data file (typically nops_scan_DATETIME.zip)
+# in the 'scanned_images_dir' (or its current working directory if dir=".").
+# This zip file is the input for nops_eval.
 ```
+This command will generate a ZIP file (e.g., `nops_scan_YYYYMMDDHHMMSS.zip`) in the `scanned_images_dir` containing the data extracted from the images.
 
-Este comando generará un archivo CSV (`nops_scan.csv`) con la información de los exámenes escaneados.
+### 3. Preparing Student Registration Data
 
-### 4. Evaluación de los Exámenes
+You need a CSV file with student information. `nops_eval` requires specific column names: `registration` (the ID number students fill in on the exam sheet), `name`, and `id` (a unique student identifier, e.g., username).
 
-```{r evaluate_exams, eval=FALSE}
-# Leer el CSV actual
-datos <- read.csv(COURSE_FILE, sep=",")
+The input student data CSV (e.g., `student_data.csv`) might look like this:
+```csv
+"Número de Identificación","Nombre","Apellidos","Correo Electrónico","ID Usuario"
+"11111111A","Ana","Pérez García","ana.perez@email.com","aperez"
+"22222222B","Juan","López Martín","juan.lopez@email.com","jlopez"
+...
+```
+This needs to be processed into a format `nops_eval` understands. The `registration` number should be formatted to match how it's likely to be scanned (e.g., padded with zeros if it's a fixed-length numeric ID).
 
-# Crear nuevo dataframe con las columnas requeridas
-datos_corregidos <- data.frame(
-    registration = sprintf("%08d", as.numeric(datos$registration)),
-    name = paste(datos$Nom, datos$Cognoms),
-    id = datos$id
+```{r prepare_registration_example, eval=FALSE}
+# This logic will be part of the run_autocorrection.R script
+# student_data_input_csv <- STUDENT_DATA_CSV
+# processed_register_output_path <- PROCESSED_REGISTER_FILE
+
+# Example: Assuming input CSV has columns "ID Usuario", "Nombre", "Apellidos", "Número de Identificación"
+raw_student_data <- read.csv(student_data_input_csv, stringsAsFactors = FALSE, fileEncoding = "UTF-8") # Adjust encoding if needed
+
+# Adapt column names based on your actual CSV header
+processed_student_data <- data.frame(
+  registration = sprintf("%08s", as.character(raw_student_data$"Número de Identificación")), # Pad to 8 chars, adjust as needed
+  name = paste(raw_student_data$"Nombre", raw_student_data$"Apellidos"),
+  id = raw_student_data$"ID Usuario",
+  stringsAsFactors = FALSE
 )
 
-# Guardar el nuevo CSV con el formato correcto
+# Save the processed register file with semicolon separator and UTF-8 encoding
 write.table(
-    datos_corregidos,
-    file = REGISTER_FILE,
-    sep = ";",
-    row.names = FALSE,
-    quote = FALSE,
-    fileEncoding = "UTF-8"
-) 
-
-# Evaluar los exámenes
-nops_eval(
-    register = REGISTER_FILE,
-    solutions = SOLUTIONS_FILE,
-    scans = list.files(SCANNED_DIR, pattern = "\\.zip$", full.names = TRUE)[1],
-    results = RESULTS_FILE,
-    language = "es",
-    eval = exams_eval(partial = EVAL_PARTIAL, negative = PENALTY)
+  processed_student_data,
+  file = processed_register_output_path,
+  sep = ";",
+  row.names = FALSE,
+  quote = FALSE,
+  fileEncoding = "UTF-8"
 )
-
-# Recalcular la nota final como puntos/44
-resultados <- read.csv(paste0(RESULTS_FILE, ".csv"), sep=";")
-write.csv(data.frame(
-    registration = resultados$registration,
-    name = resultados$name,
-    points = resultados$points,
-    mark = resultados$points * 10 / 44  # Convertir a nota sobre 10
-), paste0(RESULTS_FILE, "_corrected44.csv"), row.names = FALSE)
+message(sprintf("Processed student registration data saved to: %s", processed_register_output_path))
 ```
 
-### 5. Resultados de la Evaluación
+### 4. Evaluating the Exams
 
-El proceso de evaluación generará varios archivos:
+Use `nops_eval()` to grade the exams using the scanned data, the processed student register, and the solutions file (`exam.rds`).
 
-- `resultados_evaluacion.csv`: Archivo CSV con las puntuaciones de cada estudiante
-- `resultados_evaluacion.rds`: Archivo R con datos detallados de la evaluación
-- `resultados_evaluacion-*.pdf`: Informes individuales para cada estudiante (si se solicita)
+```{r evaluate_exams_example, eval=FALSE}
+# This logic will be part of the run_autocorrection.R script
+# processed_student_register_file <- PROCESSED_REGISTER_FILE
+# solutions_rds_file <- SOLUTIONS_FILE
+# scans_zip_file <- scan_result_zip # Path to the zip from nops_scan
+# results_output_basename <- file.path(CORRECTION_RESULTS_DIR, RESULTS_BASE_NAME)
+# eval_lang <- "en" # Example, configurable
+# use_partial_scoring <- EVAL_PARTIAL
+# points_penalty <- PENALTY
 
-### 6. Análisis de los Resultados
+# Find the nops_scan ZIP file (e.g., the latest one if not specified)
+if(is.null(scans_zip_file) || !file.exists(scans_zip_file)) {
+    scan_files <- list.files(path = dirname(processed_student_register_file), # Assuming it's in a related dir
+                             pattern = "^nops_scan_.*\\.zip$",
+                             full.names = TRUE)
+    if(length(scan_files) == 0) stop("No nops_scan ZIP file found.")
+    scans_zip_file <- scan_files[order(file.info(scan_files)$mtime, decreasing = TRUE)][1]
+    message(sprintf("Using latest nops_scan ZIP file: %s", scans_zip_file))
+}
 
-```{r analyze_results, eval=FALSE}
-# Cargar los resultados
-resultados <- readRDS(paste0(RESULTS_FILE, ".rds"))
 
-# Ver estadísticas básicas
-summary(resultados$points)
+nops_eval(
+  register = processed_student_register_file,
+  solutions = solutions_rds_file,
+  scans = scans_zip_file,
+  results = results_output_basename, # Basename for .csv and .rds files
+  language = eval_lang,
+  eval = exams_eval(partial = use_partial_scoring, negative = points_penalty, rule = "false") # rule="false" for standard penalty
+)
+message(sprintf("Evaluation complete. Results files generated with basename: %s", results_output_basename))
 
-# Histograma de puntuaciones
-hist(resultados$points, breaks = 10, main = "Distribución de Puntuaciones", 
-     xlab = "Puntuación", col = "lightblue")
+# Recalculate the final mark if needed (e.g., scale to 10)
+# max_raw_score_exam <- MAX_RAW_SCORE
+# target_scaled_mark <- SCALE_TO_MARK
 
-# Análisis por pregunta
-pregunta_analisis <- colMeans(resultados$results)
-barplot(pregunta_analisis, main = "Tasa de Acierto por Pregunta", 
-        xlab = "Pregunta", ylab = "Proporción de Aciertos", col = "lightgreen")
+results_csv_file <- paste0(results_output_basename, ".csv")
+if (file.exists(results_csv_file)) {
+  exam_results_data <- read.csv(results_csv_file, sep = ";", stringsAsFactors = FALSE)
+  
+  # Ensure 'points' column exists
+  if("points" %in% names(exam_results_data) && !is.null(max_raw_score_exam) && !is.null(target_scaled_mark)) {
+    exam_results_data$mark <- round(exam_results_data$points * target_scaled_mark / max_raw_score_exam, 2)
+    
+    scaled_results_csv_file <- paste0(results_output_basename, "_scaled.csv")
+    write.csv(exam_results_data, scaled_results_csv_file, row.names = FALSE, quote = FALSE)
+    message(sprintf("Scaled marks saved to: %s", scaled_results_csv_file))
+  } else {
+    message("Skipping mark scaling: 'points' column not found, or max_raw_score/target_scaled_mark not set.")
+  }
+} else {
+  warning(sprintf("Results CSV file %s not found. Cannot scale marks.", results_csv_file))
+}
 ```
 
-## Solución de Problemas
+### 5. Evaluation Results
 
-### Problemas de Reconocimiento
+The evaluation process will generate several files, typically:
 
-Si el sistema no reconoce correctamente algunas marcas:
+-   `[results_output_basename].csv`: CSV file with scores for each student.
+-   `[results_output_basename].rds`: R data file with detailed evaluation data.
+-   `[results_output_basename]_scaled.csv` (if scaling is applied): CSV with an additional scaled mark.
+-   Individual PDF reports for students can also be generated by `nops_eval` if options like `interactive = TRUE` are used or by post-processing the RDS file, but this is beyond the basic script.
 
-1. Ajustar los umbrales en la función `nops_scan()`:
-   ```r
-   nops_scan(dir = SCANNED_DIR, threshold = c(0.03, 0.97))
-   ```
+### 6. Analyzing the Results (Manual/Interactive)
 
-2. Verificar la calidad del escaneo:
-   - Asegurar que el contraste es adecuado
-   - Comprobar que las hojas están correctamente alineadas
-   - Evitar sombras o manchas en el papel
+You can load the RDS results file for more detailed analysis in R.
 
-### Corrección Manual
+```{r analyze_results_example, eval=FALSE}
+# results_rds_file <- paste0(results_output_basename, ".rds") # From previous step
+# exam_evaluation_data <- readRDS(results_rds_file)
 
-Si es necesario corregir manualmente algunas respuestas:
+# View basic statistics of raw points
+# summary(exam_evaluation_data$points)
 
-1. Editar el archivo `nops_scan.csv` con un editor de texto o Excel
-2. Modificar las respuestas marcadas según sea necesario
-3. Guardar el archivo y volver a ejecutar `nops_eval()`
+# Histogram of scores
+# hist(exam_evaluation_data$points, breaks = 10, main = "Score Distribution",
+#      xlab = "Score", col = "lightblue")
 
-## Referencias
+# Analysis per question (average score per question)
+# question_analysis <- colMeans(exam_evaluation_data$results) # 'results' matrix: 1 for correct, fraction for partial, 0 for incorrect/penalized
+# barplot(question_analysis, main = "Average Score per Question",
+#         xlab = "Question", ylab = "Average Score", col = "lightgreen", las=2)
+```
 
-- Documentación oficial de R/exams: http://www.r-exams.org/
-- Tutorial específico para NOPS: http://www.r-exams.org/tutorials/exams2nops/
-- Evaluación de exámenes NOPS: http://www.r-exams.org/tutorials/nops_eval/ 
+## Troubleshooting
 
-## Ejemplo de correo para el envío de los exámenes:
+### Recognition Issues
 
-Hola [:firstname:],
+If the system does not correctly recognize some marks:
 
-Te adjunto en html la plantilla de corrección de tu examen, para que puedas ver tus errores y comprobar si el sistema automatizado lo ha corregido sin incidencia.
+1.  Adjust the scan thresholds in the `nops_scan()` call (via script parameters):
+    ```r
+    # Example: --scan-thresholds "0.03,0.97"
+    ```
+2.  Verify scan quality:
+    *   Ensure adequate contrast.
+    *   Check that sheets are correctly aligned.
+    *   Avoid shadows or marks on the paper.
 
-Tras realizar el examen se ha detectado que la pregunta 37 (¿Respecto del modelo local y centralizado de privacidad diferencial, cuál de las siguientes afirmaciones no es cierta?) tenía dos posibles respuestas correctas, lo cual podía dar lugar a confusión, y se ha decidido elimarla del cómputo de la nota.
+### Manual Correction
 
-Por tanto, la nota del examen se calcula como Puntos / 44 (ignora por favor el campo que pone Nota en el html adjunto, ya que su valor es incorrecto)
+If manual correction of scanned responses is necessary:
 
-Un saludo cordial,
-Oscar Pellicer.
+1.  The `nops_scan()` function produces a ZIP file. Inside this ZIP, there's a `nops_scan.csv` (or similar name).
+2.  Unzip the file, edit this CSV with a text editor or spreadsheet software.
+3.  Modify the marked responses as needed.
+4.  Re-zip the contents (ensure `nops_scan.csv` is at the root of the archive).
+5.  Re-run `nops_eval()` using this manually corrected ZIP file for the `scans` argument.
+    Alternatively, `exams::nops_fix()` can be used for an interactive way to correct scans if `exams_eval(interactive = TRUE)` was used.
+
+## References
+
+-   Official R/exams documentation: http://www.r-exams.org/
+-   Tutorial for NOPS: http://www.r-exams.org/tutorials/exams2nops/
+-   Evaluating NOPS exams: http://www.r-exams.org/tutorials/nops_eval/
+
+## Example Email for Sending Corrected Exams (Placeholder)
+
+<!-- Hello [:firstname:],
+
+I am attaching the HTML correction template for your exam, so you can see your mistakes and check if the automated system has corrected it without issues.
+
+Best regards,
+[Your Name] -->

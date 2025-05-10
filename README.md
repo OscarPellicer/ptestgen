@@ -166,6 +166,66 @@ Core pipeline implemented with support for major LLM providers. Text parsing han
 *   `--rexams-title`: Custom title for R/exams PDF output. If not set, uses R script's default.
 *   `--rexams-course`: Custom course name for R/exams PDF output. If not set, uses R script's default.
 
+**Correcting R/exams NOPS Scans:**
+
+The `autotestia/rexams/correct_exams.py` script provides a command-line interface to automate the correction of scanned R/exams NOPS answer sheets. It wraps an R script (`run_autocorrection.R`) that performs the core operations: PDF splitting (optional), scanning marks using `nops_scan()`, preparing student registration data, and evaluating exams using `nops_eval()`.
+
+**Example:**
+
+```bash
+# Ensure R and necessary R packages (exams, qpdf, optparse) are installed.
+python autotestia/rexams/correct_exams.py \
+    --all-scans-pdf path/to/your/all_scans_concatenated.pdf \
+    --split-pages \
+    --scans-dir ./scanned_exam_pages \
+    --student-info-csv path/to/your/student_data.csv \
+    --solutions-rds path/to/your/generated_rexams_output/exam.rds \
+    --output-basename ./correction_output/exam_results \
+    --language en \
+    --max-score 45 \
+    --scale-mark-to 10
+```
+
+This command would:
+1.  Split `all_scans_concatenated.pdf` into individual page PDFs in `./scanned_exam_pages/`.
+2.  Scan these pages.
+3.  Process `student_data.csv` to match the format required by `nops_eval`.
+4.  Evaluate the exams using solutions from `exam.rds`.
+5.  Save results (e.g., `exam_results.csv`, `exam_results.rds`, `exam_results_scaled_to_10.csv`) in `./correction_output/`.
+6.  Scale the marks based on a maximum possible score of 45 to a new scale up to 10.
+
+**Key Command Line Options for `correct_exams.py`:**
+
+*   **Input Files/Directories:**
+    *   `--all-scans-pdf`: Path to a single PDF containing all scanned exam sheets (required if `--split-pages` is used).
+    *   `--scans-dir`: Directory for individual scanned exam pages (output of splitting, input for `nops_scan`). (Required)
+    *   `--student-info-csv`: Path to your CSV file containing student information. (Required)
+        *   The script expects certain column names by default (e.g., `'Número.de.Identificación'`, `'Nombre'`, `'Apellidos'`, `'ID.Usuario'`). These can be configured using `--student-csv-*` arguments.
+        *   The student registration number read from this CSV will be formatted using `--registration-format` (default: `"%08s"`) before matching with scanned data.
+    *   `--solutions-rds`: Path to the `exam.rds` file generated during R/exams creation (e.g., by `exams2nops` or the `generate_exams.R` script). (Required)
+*   **Output Configuration:**
+    *   `--output-basename`: Basename for the output files (e.g., `results/my_exam_corrected` will produce `results/my_exam_corrected.csv`, `.rds`, etc.). (Required)
+    *   `--processed-register-filename`: Filename for the intermediate student registration CSV created by the script (default: `processed_student_register.csv`).
+*   **R Environment & Language:**
+    *   `--r-executable`: Path to the `Rscript` executable. If omitted, the script attempts to find it automatically.
+    *   `--language`: Language for `nops_eval` (e.g., `en`, `es`, `ca`; default: `en`).
+*   **Scanning & Evaluation Parameters:**
+    *   `--scan-thresholds`: Comma-separated pair for scan thresholds (e.g., `"0.04,0.42"`).
+    *   `--partial-eval` / `--no-partial-eval`: Enable/disable partial scoring (default: enabled).
+    *   `--negative-points`: Penalty for incorrect answers (default: -1/3).
+    *   `--max-score`: Maximum raw score of the exam (e.g., 44). Needed if you want to scale the final mark.
+    *   `--scale-mark-to`: Target score to scale the final mark to (e.g., 10; default: 10.0).
+*   **PDF Splitting:**
+    *   `--split-pages` / `--no-split-pages`: Enable splitting of `--all-scans-pdf` (default: disabled).
+    *   `--force-split` / `--no-force-split`: If splitting, force overwrite of existing split pages (default: disabled).
+*   **Student CSV Customization:**
+    *   `--student-csv-id-col`: Column name for the unique student ID (e.g., username).
+    *   `--student-csv-reg-col`: Column name for the registration number (ID written on the exam sheet).
+    *   `--student-csv-name-col`: Column name for student's first name.
+    *   `--student-csv-surname-col`: Column name for student's surname.
+    *   `--student-csv-encoding`: Encoding of your input student CSV file (default: `UTF-8`).
+    *   `--registration-format`: `sprintf`-style format string for the registration number (default: `"%08s"`).
+
 ## Next Steps
 
 *   Test all the output formats (only Wooclap and R/Exams have been tested so far)
