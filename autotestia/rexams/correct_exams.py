@@ -39,6 +39,16 @@ from autotestia.rexams.check_consistency import check_student_data_consistency
 from autotestia.rexams.cv_utils import split_and_rotate_scans
 from autotestia.rexams.r_utils import _find_rscript_executable
 
+# Import the new post-processor function and its Playwright availability status
+try:
+    from autotestia.rexams.report_postprocessor import process_exam_results_zip, PLAYWRIGHT_AVAILABLE as POSTPROCESSOR_PLAYWRIGHT_AVAILABLE
+    logging.info(f"POSTPROCESSOR_PLAYWRIGHT_AVAILABLE after import attempt: {POSTPROCESSOR_PLAYWRIGHT_AVAILABLE}")
+except ImportError: # Should not happen if file exists, but good for robustness
+    logging.error("Failed to import report_postprocessor module. PNG generation for student reports will be unavailable.")
+    def process_exam_results_zip(exams_output_dir: str): # Dummy function
+        logging.warning("report_postprocessor not available, process_exam_results_zip called but will do nothing.")
+    POSTPROCESSOR_PLAYWRIGHT_AVAILABLE = False
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -471,6 +481,22 @@ def main():
             logging.warning(f"Skipping results analysis: Results CSV file '{results_csv_path}' not found.")
     elif args.run_analysis: # Flag was true, but conditions not met
         logging.info(f"Results analysis was requested but conditions not met (R success: {r_script_successfully_completed}, Results CSV exists: {os.path.exists(results_csv_path)})")
+
+    # --- PNG Generation from HTML reports in exam_corrected_results.zip ---
+    # This step runs if the R script was successful (or skipped due to existing results)
+    # and the necessary zip file ('exam_corrected_results.zip') is expected to be in output_path_abs.
+    if r_script_successfully_completed or (not r_script_was_run and os.path.exists(os.path.join(output_path_abs, "exam_corrected_results.zip"))):
+        if POSTPROCESSOR_PLAYWRIGHT_AVAILABLE:
+            logging.info("Attempting to generate PNGs from student HTML reports (if exam_corrected_results.zip was produced).")
+            try:
+                process_exam_results_zip(output_path_abs) # Pass the main output dir where the zip is expected
+            except Exception as e_postproc:
+                logging.error(f"An error occurred during student report PNG generation: {e_postproc}", exc_info=True)
+        else:
+            logging.warning("Skipping PNG generation for student reports as Playwright is not available or report_postprocessor module had issues. "
+                            "To enable, install Playwright: pip install playwright && playwright install")
+    elif POSTPROCESSOR_PLAYWRIGHT_AVAILABLE: # Playwright is there, but conditions to run PNG step not met
+        logging.info(f"PNG generation for student reports skipped. R script success: {r_script_successfully_completed}, Zip exists (checked if R not run): {os.path.exists(os.path.join(output_path_abs, 'exam_corrected_results.zip')) if not r_script_was_run else 'N/A'}")
 
 
     # --- Final Status ---
