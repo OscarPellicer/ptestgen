@@ -105,6 +105,11 @@ def main():
                         type=str,
                         default=None,
                         help="Custom course name for R/exams PDF output. If not set, uses R script's default.")
+    parser.add_argument("--rexams-date",
+                        type=str,
+                        default=None,
+                        help="Custom date for R/exams PDF output. If not set, uses R script's default.")
+
 
     # --- Logging Argument ---
     parser.add_argument("--log-level",
@@ -301,7 +306,8 @@ def main():
             num_final_questions=num_final_questions,
             # R/exams specific
             rexams_title=args.rexams_title,
-            rexams_course=args.rexams_course
+            rexams_course=args.rexams_course,
+            rexams_date=args.rexams_date
         )
     except Exception as e:
         logging.error(f"Pipeline execution failed: {e}", exc_info=True) # Log with traceback

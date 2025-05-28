@@ -72,15 +72,15 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   **Install LaTeX:** A LaTeX distribution is required for R/exams to compile `.Rmd` files into PDF documents.
         *   We recommend [TinyTeX](https://yihui.org/tinytex/), a lightweight and easy-to-install LaTeX distribution. You can install it from within R by first installing the `tinytex` R package (`install.packages("tinytex")`) and then running `tinytex::install_tinytex()`.
         *   Alternatively, you can use other LaTeX distributions like MiKTeX (Windows), MacTeX (macOS), or TeX Live (Linux).
-    *   **Install Required R Packages:** After installing R, open the R console and install the following packages. While the provided R scripts (`generate_exams.R` and `run_autocorrection.R`) attempt to install missing packages, it's best to install them beforehand:
+    *   **Install Required R Packages:** After installing R, open the R console and install the following packages. While the provided R scripts (`autotestia/rexams/generate_exams.R` and `autotestia/rexams/run_autocorrection.R`) attempt to install missing packages, it's best to install them beforehand:
         ```R
         install.packages(c("exams", "optparse", "knitr", "qpdf"))
         ```
         *   `exams`: The core package for all R/exams functionality.
         *   `optparse`: Used by the helper R scripts for parsing command-line arguments.
-        *   `knitr`: Used by `generate_exams.R` for processing R Markdown files.
-        *   `qpdf`: Used by `run_autocorrection.R` for splitting PDF files containing scanned exams.
-        *   The `autotestia_correct` command's documentation and examples also remind you of its specific R package requirements.
+        *   `knitr`: Used by `autotestia/rexams/generate_exams.R` (for R/exams PDF generation) for processing R Markdown files.
+        *   `qpdf`: Used by `autotestia/rexams/run_autocorrection.R` (for `autotestia_correct`) for splitting PDF files if R handles the splitting.
+        *   The `autotestia_correct` command (and its underlying Python PDF processing option `--split-pages`) also has Python dependencies like `PyPDF2`, `pdf2image`, and `opencv-python` which are part of the main package install, but Poppler is an external dependency for `pdf2image`.
 
 ## Usage
 
@@ -194,7 +194,9 @@ autotestia_split all_questions.md --splits 10 0.25 -1 --output-dir output/custom
 
 ### `autotestia_correct`: Correct R/exams NOPS Scans
 
-The `autotestia_correct` command (wrapping `autotestia/rexams/correct_exams.py`) provides a command-line interface to automate the correction of scanned R/exams NOPS answer sheets. It wraps an R script (`run_autocorrection.R`) that performs the core operations: PDF splitting (optional), scanning marks using `nops_scan()`, preparing student registration data, and evaluating exams using `nops_eval()`.
+The `autotestia_correct` command (wrapping `autotestia/rexams/correct_exams.py`) provides a command-line interface to automate the correction of scanned R/exams NOPS answer sheets. It wraps an R script (`autotestia/rexams/run_autocorrection.R`) that performs the core operations: scanning marks using `nops_scan()`, preparing student registration data, and evaluating exams using `nops_eval()`. 
+
+This Python wrapper can also optionally handle PDF splitting and page rotation using its own image processing capabilities (OpenCV, pdf2image) if you use the `--split-pages` flag and related options, before passing the processed scan data to the R script. This provides more control over the pre-processing steps directly within Python.
 
 #### Example for `autotestia_correct`:
 
@@ -203,35 +205,30 @@ The `autotestia_correct` command (wrapping `autotestia/rexams/correct_exams.py`)
 autotestia_correct \
     --all-scans-pdf path/to/your/all_scans_concatenated.pdf \
     --split-pages \
-    --scans-dir ./scanned_exam_pages \
     --student-info-csv path/to/your/student_data.csv \
     --solutions-rds path/to/your/generated_rexams_output/exam.rds \
-    --output-basename ./correction_output/exam_results \
+    --output-path ./correction_output \
     --language en \
     --max-score 45 \
     --scale-mark-to 10
 ```
 
-This command would:
-1.  Split `all_scans_concatenated.pdf` into individual page PDFs in `./scanned_exam_pages/`.
-2.  Scan these pages.
+This command would (with `--split-pages` handled by Python by default):
+1.  Split `all_scans_concatenated.pdf` into individual page PDFs (potentially also rotating them) within a subdirectory of `./correction_output/`.
+2.  The R script then scans these pages.
 3.  Process `student_data.csv` to match the format required by `nops_eval`.
 4.  Evaluate the exams using solutions from `exam.rds`.
-5.  Save results (e.g., `exam_results.csv`, `exam_results.rds`, `exam_results_scaled_to_10.csv`) in `./correction_output/`.
+5.  Save results (e.g., `exam_corrected_results.csv`) in `./correction_output/`.
 6.  Scale the marks based on a maximum possible score of 45 to a new scale up to 10.
+7.  Generate a histogram of scores and other statistics (if `--max-score` is provided).
 
 #### Command Line Options for `autotestia_correct`:
 
 *   **Input Files/Directories:**
-    *   `--all-scans-pdf`: Path to a single PDF containing all scanned exam sheets (required if `--split-pages` is used).
-    *   `--scans-dir`: Directory for individual scanned exam pages (output of splitting, input for `nops_scan`). (Required)
+    *   `--all-scans-pdf`: Path to a single PDF containing all scanned exam sheets (required if Python's `--split-pages` is used, or if R is to split pages).
     *   `--student-info-csv`: Path to your CSV file containing student information. (Required)
-        *   The script expects certain column names by default (e.g., `'Número.de.Identificación'`, `'Nombre'`, `'Apellidos'`, `'ID.Usuario'`). These can be configured using `--student-csv-*` arguments.
-        *   The student registration number read from this CSV will be formatted using `--registration-format` (default: `"%08s"`) before matching with scanned data.
-    *   `--solutions-rds`: Path to the `exam.rds` file generated during R/exams creation (e.g., by `exams2nops` or the `generate_exams.R` script). (Required)
-*   **Output Configuration:**
-    *   `--output-basename`: Basename for the output files (e.g., `results/my_exam_corrected` will produce `results/my_exam_corrected.csv`, `.rds`, etc.). (Required)
-    *   `--processed-register-filename`: Filename for the intermediate student registration CSV created by the script (default: `processed_student_register.csv`).
+    *   `--solutions-rds`: Path to the `exam.rds` file generated during R/exams creation. (Required)
+    *   `--output-path`: Main directory for all outputs (e.g., `results/my_exam_corrected` will produce `results/my_exam_corrected/exam_corrected_results.csv`, etc.). (Required)
 *   **R Environment & Language:**
     *   `--r-executable`: Path to the `Rscript` executable. If omitted, the script attempts to find it automatically.
     *   `--language`: Language for `nops_eval` (e.g., `en`, `es`, `ca`; default: `en`).
@@ -241,10 +238,20 @@ This command would:
     *   `--negative-points`: Penalty for incorrect answers (default: -1/3).
     *   `--max-score`: Maximum raw score of the exam (e.g., 44). Needed if you want to scale the final mark.
     *   `--scale-mark-to`: Target score to scale the final mark to (e.g., 10; default: 10.0).
-*   **PDF Splitting:**
-    *   `--split-pages` / `--no-split-pages`: Enable splitting of `--all-scans-pdf` (default: disabled).
-    *   `--force-split` / `--no-force-split`: If splitting, force overwrite of existing split pages (default: disabled).
-*   **Student CSV Customization:**
+*   **PDF Processing Controls (Python vs R):**
+    *   `--split-pages` / `--no-split-pages` (`--split-pages-python-control` in the script): Enable PDF splitting & rotation by the Python script (default: False). If True, Python converts the `--all-scans-pdf` into individual processed page PDFs (using OpenCV for rotation and `pdf2image`) in `output-path/scanned_pages/` before calling R.
+    *   `--force-split` / `--no-force-split` (`--force-split-python-control` in the script): Force overwrite for PDF splitting (applies to Python splitting if `--split-pages` is on, or to R's splitting if `--split-pages` is off but R is expected to split).
+    *   `--python-rotate` / `--no-python-rotate` (`--python-rotate-control` in the script): Enable actual image rotation by Python if Python's `--split-pages` is active (default: True). If False, Python splits but does not rotate.
+    *   `--rotate-scans` / `--no-rotate-scans` (`--rotate-scans-r-control` in the script): Enable image rotation by R's `nops_scan` (only relevant if Python's `--split-pages` is off). (default: False)
+*   **Execution Flow Control:**
+    *   `--force-r-eval`: Force R script evaluation even if results CSV exists (default: False).
+    *   `--force-nops-scan`: Force R's `nops_scan` to re-run (default: False).
+*   **Consistency Check Control (Python):**
+    *   `--run-consistency-check-on-fail` / `--no-run-consistency-check-on-fail`: Run Python-based consistency check if R script fails (default: True).
+    *   `--always-run-consistency-check`: Always run Python-based consistency check after R script attempt (default: False).
+*   **Analysis Control (Python):**
+    *   `--run-analysis` / `--no-run-analysis`: Run Python-based results analysis (histogram, stats) if results CSV exists/is created (default: True).
+*   **Student CSV Customization (for R script):**
     *   `--student-csv-id-col`: Column name for the unique student ID (e.g., username).
     *   `--student-csv-reg-col`: Column name for the registration number (ID written on the exam sheet).
     *   `--student-csv-name-col`: Column name for student's first name.

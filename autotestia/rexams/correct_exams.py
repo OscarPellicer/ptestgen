@@ -6,6 +6,38 @@ import sys
 import shutil
 import glob
 from typing import Optional, List, Tuple
+import zipfile
+import tempfile
+
+# New imports for PDF processing and image manipulation
+try:
+    import PyPDF2 # Maintained fork, or use 'import pypdf' for the original
+except ImportError:
+    try:
+        import pypdf as PyPDF2 # Try the original name if the fork isn't there
+        logging.info("Using 'pypdf' as PyPDF2 was not found.")
+    except ImportError:
+        logging.critical("PyPDF2 or pypdf library not found. Please install it: pip install PyPDF2 or pip install pypdf")
+        sys.exit(1)
+
+try:
+    from pdf2image import convert_from_path
+    from pdf2image.exceptions import PDFInfoNotInstalledError, PDFPageCountError, PDFSyntaxError, PDFPopplerTimeoutError
+except ImportError:
+    logging.critical("pdf2image library not found. Please install it: pip install pdf2image (and ensure Poppler is installed).")
+    sys.exit(1)
+try:
+    from PIL import Image, UnidentifiedImageError
+except ImportError:
+    logging.critical("Pillow (PIL) library not found. Please install it: pip install Pillow")
+    sys.exit(1)
+# import math # math is no longer directly used here, it's in cv_utils
+
+# Custom imports
+from autotestia.rexams.analyze_exam_results import analyze_results
+from autotestia.rexams.check_consistency import check_student_data_consistency
+from autotestia.rexams.cv_utils import split_and_rotate_scans
+from autotestia.rexams.r_utils import _find_rscript_executable
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -84,27 +116,28 @@ def _find_rscript_executable(r_exec_param: Optional[str]) -> Optional[str]:
 
 def run_correction_script(
     all_scans_pdf: Optional[str],
-    scans_dir: str,
     student_info_csv: str,
     solutions_rds: str,
-    output_basename: str,
+    output_path: str,
     language: str = "en",
     scan_thresholds: Tuple[float, float] = (0.04, 0.42),
     partial_eval: bool = True,
     negative_points: float = -1/3,
     max_score: Optional[float] = None,
     scale_mark_to: float = 10.0,
-    split_pages: bool = False,
-    force_split: bool = False,
+    split_pages_python_control: bool = False,
+    force_split_python_control: bool = False,
     r_executable: Optional[str] = None,
-    processed_register_filename: str = "processed_student_register.csv",
-    student_csv_cols: Optional[dict] = None, # For id, reg, name, surname cols
+    student_csv_cols: Optional[dict] = None,
     student_csv_encoding: str = "UTF-8",
-    registration_format: str = "%08s"
-
+    registration_format: str = "%08s",
+    force_nops_scan: bool = False,
+    rotate_scans_r_control: bool = False,
+    python_rotate_control: bool = True,
 ) -> bool:
     """
     Calls the R script to perform exam auto-correction.
+    Manages PDF splitting and rotation in Python if `split_pages_python_control` is True.
     """
     final_r_executable = _find_rscript_executable(r_executable)
     if not final_r_executable:
@@ -122,53 +155,99 @@ def run_correction_script(
 
     command: List[str] = [final_r_executable, R_CORRECTION_SCRIPT_PATH]
 
-    # Helper to add optional arguments
     def add_arg(opt_name: str, value, is_flag=False):
         if is_flag:
-            if value: # Add flag if True
+            if value:
                 command.append(opt_name)
         elif value is not None:
             command.extend([opt_name, str(value)])
-    
-    # Add arguments, ensuring paths are absolute for robustness
-    if split_pages:
+
+    # --- PDF Pre-processing by Python ---
+    # The directory `output_path/scanned_pages` is what the R script expects
+    # for nops_scan input if R's own splitting is not used.
+    r_nops_scan_input_dir = os.path.join(os.path.abspath(output_path), "scanned_pages")
+
+    if split_pages_python_control: # Python's --split-pages is TRUE
+        logging.info("Python is handling PDF splitting and rotation.")
         if not all_scans_pdf:
-            logging.error("--all-scans-pdf is required when --split-pages is enabled.")
+            logging.error("`--all-scans-pdf` is required when Python's `--split-pages` is enabled.")
             return False
-        add_arg("--all-scans-pdf", os.path.abspath(all_scans_pdf))
-        add_arg("--split-pages", True, is_flag=True)
-        if force_split:
-            add_arg("--force-split", True, is_flag=True)
-    
-    add_arg("--scans-dir", os.path.abspath(scans_dir))
+        
+        processed_dir = split_and_rotate_scans(
+            all_scans_pdf_path=os.path.abspath(all_scans_pdf),
+            output_dir_for_processed_scans=r_nops_scan_input_dir, # Python populates R's expected dir
+            force_processing=force_split_python_control,
+            python_script_output_path=os.path.abspath(output_path), # For debug images subdir
+            do_python_rotation=python_rotate_control,
+        )
+        if not processed_dir:
+            logging.error("Python PDF splitting and rotation failed. Aborting.")
+            return False
+        
+        # Tell R script NOT to split and NOT to rotate.
+        # `--split-pages` for R is not added.
+        # `--all-scans-pdf` for R is not added.
+        add_arg("--rotate-scans", False, is_flag=True) # Python handled rotation
+    else:
+        logging.info("Python is NOT handling PDF splitting/rotation. R script will manage based on its flags.")
+        # R script will handle splitting if its --split-pages is set.
+        # Pass relevant args for R's own processing.
+        if all_scans_pdf: # If a combined PDF is provided for R to potentially split
+            add_arg("--all-scans-pdf", os.path.abspath(all_scans_pdf))
+            # We need to tell R to split this. The R script's --split-pages flag does this.
+            # This implies the Python script should have a way to pass this intent.
+            # Let's assume if split_pages_python_control is FALSE, AND all_scans_pdf is given,
+            # R should try to split it. This requires the R script's --split-pages flag to be set.
+            # The current R script's --split-pages flag is a boolean action.
+            # Let's make the `force_split_python_control` also control R's `--force-split` in this case.
+            add_arg("--split-pages", True, is_flag=True) # Tell R to use its splitting mechanism
+            if force_split_python_control: # If forcing, applies to R's split too
+                add_arg("--force-split", True, is_flag=True)
+        
+        # Pass the original rotate_scans_r_control to R
+        add_arg("--rotate-scans", rotate_scans_r_control, is_flag=True)
+
+
+    # --- Common R Script Arguments ---
     add_arg("--student-info-csv", os.path.abspath(student_info_csv))
     add_arg("--solutions-rds", os.path.abspath(solutions_rds))
-    add_arg("--output-basename", os.path.abspath(output_basename)) # R script handles dirname creation
-    
+    # `output_path` is crucial. R script constructs `derived_scans_dir` from it.
+    # If Python processed scans, it placed them into `output_path/scanned_pages`.
+    # If R processes, it will also create/use `output_path/scanned_pages`. This matches.
+    add_arg("--output-path", os.path.abspath(output_path))
+
     add_arg("--language", language)
     add_arg("--scan-thresholds", f"{scan_thresholds[0]},{scan_thresholds[1]}")
-    
+
     if partial_eval:
         add_arg("--partial", True, is_flag=True)
     else:
-        add_arg("--no-partial", True, is_flag=True) # R script uses --no-partial to set partial=FALSE
-        
+        add_arg("--no-partial", True, is_flag=True)
+
     add_arg("--negative-points", negative_points)
     add_arg("--max-score", max_score)
     add_arg("--scale-mark-to", scale_mark_to)
-    add_arg("--processed-register-filename", processed_register_filename)
+    add_arg("--force-nops-scan", force_nops_scan, is_flag=True)
 
     if student_csv_cols:
         add_arg("--student-csv-id-col", student_csv_cols.get("id"))
         add_arg("--student-csv-reg-col", student_csv_cols.get("reg"))
         add_arg("--student-csv-name-col", student_csv_cols.get("name"))
         add_arg("--student-csv-surname-col", student_csv_cols.get("surname"))
-    
+
     add_arg("--student-csv-encoding", student_csv_encoding)
     add_arg("--registration-format", registration_format)
 
+    shell_command_parts = []
+    for part in command:
+        if " " in part and not (part.startswith('"') and part.endswith('"')):
+            shell_command_parts.append(f'"{part}"')
+        else:
+            shell_command_parts.append(part)
 
-    logging.info(f"Executing R correction command: {' '.join(command)}")
+    shell_command_str = " ".join(shell_command_parts)
+    logging.info("To run this R script manually in a shell, use a command like:")
+    logging.info(shell_command_str)
 
     try:
         process = subprocess.run(
@@ -176,28 +255,24 @@ def run_correction_script(
             capture_output=True,
             text=True,
             check=False,
-            encoding='utf-8' # Ensure consistent encoding
+            encoding='utf-8'
         )
 
         if process.stdout:
             logging.info(f"R script STDOUT:\n{process.stdout}")
-        if process.stderr: # R often prints info messages to stderr
+        if process.stderr:
             logging.info(f"R script STDERR:\n{process.stderr}")
 
         if process.returncode == 0:
             logging.info("R correction script executed successfully.")
-            # Check if expected output files were created (e.g., output_basename.csv)
-            expected_csv = os.path.abspath(output_basename) + ".csv"
+            expected_csv = os.path.join(os.path.abspath(output_path), "exam_corrected_results.csv")
             if not os.path.exists(expected_csv):
                 logging.warning(f"R script finished, but main results CSV '{expected_csv}' not found. Please check R script logs and output directory.")
             return True
         else:
             logging.error(f"R correction script execution failed with return code {process.returncode}.")
-            # R might have already printed errors, but log its stderr again if not empty
-            if process.stderr:
-                 logging.error(f"R script STDERR (Full):\n{process.stderr}")
-            else: # If R stderr is empty, but failed, stdout might contain error
-                 logging.error(f"R script STDOUT (Full, as STDERR was empty):\n{process.stdout}")
+            if process.stderr.strip(): logging.error(f"R script STDERR (Full):\n{process.stderr}")
+            elif process.stdout.strip(): logging.error(f"R script STDOUT (Full, as STDERR was empty):\n{process.stdout}")
             return False
 
     except FileNotFoundError:
@@ -209,115 +284,216 @@ def run_correction_script(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Python wrapper for R/exams auto-correction script.",
-        formatter_class=argparse.RawTextHelpFormatter # For preserving newlines in help
+        description="Python wrapper for R/exams auto-correction, with integrated consistency checks and results analysis.",
+        formatter_class=argparse.RawTextHelpFormatter
     )
 
-    # --- Input Files/Dirs ---
-    parser.add_argument("--all-scans-pdf", type=str,
-                        help="Path to the single PDF containing all scanned exams (required if --split-pages is used).")
-    parser.add_argument("--scans-dir", type=str, required=True,
-                        help="Directory for individual scanned exam pages (input for nops_scan, output for splitting).")
-    parser.add_argument("--student-info-csv", type=str, required=True,
-                        help="Path to the input CSV with student information.\n"
-                             "Expected columns can be configured (see --student-csv-* args).\n"
-                             "Default expected columns (case-sensitive):\n"
-                             "  - 'Número.de.Identificación': Student ID as written on the exam sheet.\n"
-                             "  - 'Nombre': Student's first name.\n"
-                             "  - 'Apellidos': Student's surname(s).\n"
-                             "  - 'ID.Usuario': Unique student identifier (e.g., Moodle username).\n"
-                             "The 'registration' number in the R script will be formatted (e.g., zero-padded) "
-                             "using --registration-format (default: '%08s'). Ensure this matches exam sheet format.")
-    parser.add_argument("--solutions-rds", type=str, required=True,
-                        help="Path to the exam.rds file generated by R/exams (e.g., by exams2nops or generate_exams.R).")
-
-    # --- Output Configuration ---
-    parser.add_argument("--output-basename", type=str, required=True,
-                        help="Basename for results files (e.g., 'results_dir/exam01_corrected').\n"
-                             "The script will create files like 'results_dir/exam01_corrected.csv' and '.rds'.\n"
-                             "The directory part must exist or be creatable by the R script.")
-    parser.add_argument("--processed-register-filename", type=str, default="processed_student_register.csv",
-                        help="Filename for the intermediate processed student registration CSV. "
-                             "It will be saved in the same directory as --output-basename. (default: %(default)s)")
-
+    # --- Input Files ---
+    parser.add_argument("--all-scans-pdf", type=str, help="Path to the single PDF containing all scanned exams.")
+    parser.add_argument("--student-info-csv", type=str, required=True, help="Path to the input CSV with student information.")
+    parser.add_argument("--solutions-rds", type=str, required=True, help="Path to the exam.rds file from R/exams.")
+    parser.add_argument("--output-path", type=str, required=True, help="Main directory for all outputs.")
+    
     # --- R Script and Language ---
-    parser.add_argument("--r-executable", type=str, default=None,
-                        help="Path to the Rscript executable. If not provided, attempts to find it automatically.")
-    parser.add_argument("--language", type=str, default="en", choices=["en", "es", "ca", "de", "fr"], # Common languages for nops_eval
-                        help="Language for nops_eval messages and potential outputs. (default: %(default)s)")
-
+    parser.add_argument("--r-executable", type=str, default=None, help="Path to Rscript. Tries to find automatically if None.")
+    parser.add_argument("--language", type=str, default="en", choices=["en", "es", "ca", "de", "fr"], help="Language for nops_eval.")
+    
     # --- Scan and Evaluation Parameters ---
-    parser.add_argument("--scan-thresholds", type=str, default="0.04,0.42",
-                        help="Comma-separated scan thresholds (lower,upper) for nops_scan. (default: %(default)s)")
-    parser.add_argument("--partial-eval", action=argparse.BooleanOptionalAction, default=True, # Py 3.9+
-                        help="Enable partial scoring for schoice/mchoice questions. (default: enabled)")
-    parser.add_argument("--negative-points", type=float, default=-1/3,
-                        help="Penalty for incorrect answers (e.g., -0.3333). (default: %(default)f)")
-    parser.add_argument("--max-score", type=float, default=None,
-                        help="Maximum raw score of the exam (e.g., 44). Required for scaling marks.")
-    parser.add_argument("--scale-mark-to", type=float, default=10.0,
-                        help="Target score for scaling the final mark (e.g., 10). (default: %(default)f)")
+    parser.add_argument("--scan-thresholds", type=str, default="0.04,0.42", help="Scan thresholds for nops_scan (lower,upper).")
+    parser.add_argument("--partial-eval", action=argparse.BooleanOptionalAction, default=True, help="Enable partial scoring.")
+    parser.add_argument("--negative-points", type=float, default=-1/3, help="Penalty for incorrect answers.")
+    parser.add_argument("--max-score", type=float, default=None, help="Maximum raw score (for analysis and R script scaling).")
+    parser.add_argument("--scale-mark-to", type=float, default=10.0, help="Target score for R script's mark scaling.")
 
-    # --- PDF Splitting ---
+    # --- PDF Processing Controls (Python vs R) ---
     parser.add_argument("--split-pages", action=argparse.BooleanOptionalAction, default=False,
-                        help="Enable PDF splitting of --all-scans-pdf into --scans-dir. (default: disabled)")
+                        dest="split_pages_python_control",
+                        help="Enable PDF splitting & rotation by this Python script.")
     parser.add_argument("--force-split", action=argparse.BooleanOptionalAction, default=False,
-                        help="Force overwrite of existing split PDF files if --split-pages is enabled. (default: disabled)")
+                        dest="force_split_python_control",
+                        help="Force overwrite for PDF splitting (Python or R based on --split-pages).")
+    parser.add_argument("--python-rotate", action=argparse.BooleanOptionalAction, default=True, # Default True now for --split-pages
+                        dest="python_rotate_control",
+                        help="Enable actual rotation by Python if --split-pages (Python) is active.")
+    parser.add_argument("--rotate-scans", action=argparse.BooleanOptionalAction, default=False,
+                        dest="rotate_scans_r_control",
+                        help="Enable image rotation by R's nops_scan (if Python's --split-pages is off).")
+
+    # --- Execution Flow Control ---
+    parser.add_argument("--force-r-eval", action="store_true", default=False,
+                        help="Force R script evaluation even if results CSV exists.")
+    parser.add_argument("--force-nops-scan", action=argparse.BooleanOptionalAction, default=False,
+                        help="Force R's nops_scan to re-run.")
+    
+    # --- Consistency Check Control ---
+    parser.add_argument("--run-consistency-check-on-fail", action=argparse.BooleanOptionalAction, default=True,
+                        help="Run consistency check if R script fails.")
+    parser.add_argument("--always-run-consistency-check", action="store_true", default=False,
+                        help="Always run consistency check after R script attempt.")
+
+    # --- Analysis Control ---
+    parser.add_argument("--run-analysis", action=argparse.BooleanOptionalAction, default=True,
+                        help="Run results analysis if results CSV exists/is created.")
     
     # --- Student CSV Configuration ---
-    parser.add_argument("--student-csv-id-col", type=str, default="ID.Usuario", help="Column name for student unique ID in student CSV. (default: %(default)s)")
-    parser.add_argument("--student-csv-reg-col", type=str, default="Número.de.Identificación", help="Column name for student registration (ID on sheet) in student CSV. (default: %(default)s)")
-    parser.add_argument("--student-csv-name-col", type=str, default="Nombre", help="Column name for student first name in student CSV. (default: %(default)s)")
-    parser.add_argument("--student-csv-surname-col", type=str, default="Apellidos", help="Column name for student surname(s) in student CSV. (default: %(default)s)")
-    parser.add_argument("--student-csv-encoding", type=str, default="UTF-8", help="Encoding for the student CSV file. (default: %(default)s)")
-    parser.add_argument("--registration-format", type=str, default="%08s",
-                        help="Format string (sprintf style) for student registration numbers, e.g., '%%08s' for 8-character string padding. (default: %(default)s)")
-
+    parser.add_argument("--student-csv-id-col", type=str, default="ID.Usuario")
+    parser.add_argument("--student-csv-reg-col", type=str, default="Número.de.Identificación")
+    parser.add_argument("--student-csv-name-col", type=str, default="Nombre")
+    parser.add_argument("--student-csv-surname-col", type=str, default="Apellidos")
+    parser.add_argument("--student-csv-encoding", type=str, default="UTF-8")
+    parser.add_argument("--registration-format", type=str, default="%08s")
 
     args = parser.parse_args()
+    # ... (logging guidelines from your script) ...
+    logging.info("To ensure optimal processing by R/exams:")
+    logging.info("  Scanning: 300 DPI, Black and White (1-bit), PDF format.")
+    logging.info("  If using --split-pages (Python), ensure each exam sheet is a distinct page in order.")
 
-    # Parse scan_thresholds
     try:
         st_lower, st_upper = map(float, args.scan_thresholds.split(','))
         scan_thresholds_tuple = (st_lower, st_upper)
     except ValueError:
-        parser.error("Invalid --scan-thresholds format. Expected 'lower,upper' (e.g., '0.04,0.42').")
-        return # Should exit due to parser.error
+        parser.error("Invalid --scan-thresholds format.")
+        return
 
     student_csv_cols_dict = {
-        "id": args.student_csv_id_col,
-        "reg": args.student_csv_reg_col,
-        "name": args.student_csv_name_col,
-        "surname": args.student_csv_surname_col
+        "id": args.student_csv_id_col, "reg": args.student_csv_reg_col,
+        "name": args.student_csv_name_col, "surname": args.student_csv_surname_col
     }
+    
+    # ---- Main Logic ----
+    output_path_abs = os.path.abspath(args.output_path)
+    results_csv_path = os.path.join(output_path_abs, "exam_corrected_results.csv")
+    processed_register_path = os.path.join(output_path_abs, "processed_student_register.csv")
+    scanned_pages_dir = os.path.join(output_path_abs, "scanned_pages")
 
-    success = run_correction_script(
-        all_scans_pdf=args.all_scans_pdf,
-        scans_dir=args.scans_dir,
-        student_info_csv=args.student_info_csv,
-        solutions_rds=args.solutions_rds,
-        output_basename=args.output_basename,
-        language=args.language,
-        scan_thresholds=scan_thresholds_tuple,
-        partial_eval=args.partial_eval,
-        negative_points=args.negative_points,
-        max_score=args.max_score,
-        scale_mark_to=args.scale_mark_to,
-        split_pages=args.split_pages,
-        force_split=args.force_split,
-        r_executable=args.r_executable,
-        processed_register_filename=args.processed_register_filename,
-        student_csv_cols=student_csv_cols_dict,
-        student_csv_encoding=args.student_csv_encoding,
-        registration_format=args.registration_format
-    )
 
-    if success:
-        logging.info("Exam correction process completed successfully.")
-        sys.exit(0)
+    r_script_was_run = False
+    r_script_successfully_completed = False
+
+    if args.force_r_eval or not os.path.exists(results_csv_path):
+        logging.info(f"Preparing to run R correction script. Force run: {args.force_r_eval}. Results exist: {os.path.exists(results_csv_path)}")
+        r_script_was_run = True
+        try:
+            r_script_successfully_completed = run_correction_script(
+                all_scans_pdf=args.all_scans_pdf, student_info_csv=args.student_info_csv,
+                solutions_rds=args.solutions_rds, output_path=args.output_path,
+                language=args.language, scan_thresholds=scan_thresholds_tuple,
+                partial_eval=args.partial_eval, negative_points=args.negative_points,
+                max_score=args.max_score, scale_mark_to=args.scale_mark_to,
+                split_pages_python_control=args.split_pages_python_control,
+                force_split_python_control=args.force_split_python_control,
+                r_executable=args.r_executable, student_csv_cols=student_csv_cols_dict,
+                student_csv_encoding=args.student_csv_encoding,
+                registration_format=args.registration_format,
+                force_nops_scan=args.force_nops_scan,
+                rotate_scans_r_control=args.rotate_scans_r_control,
+                python_rotate_control=args.python_rotate_control,
+            )
+        except Exception as e_r_script: # Catch any exception from run_correction_script itself
+            logging.error(f"Exception during R script execution: {e_r_script}", exc_info=True)
+            r_script_successfully_completed = False
     else:
-        logging.error("Exam correction process failed. Check logs for details.")
+        logging.info(f"R script evaluation skipped as results file '{results_csv_path}' already exists. Use --force-r-eval to re-run.")
+        # If results exist and R script is skipped, we treat it as a "success" for analysis purposes.
+        r_script_successfully_completed = True 
+
+
+    # --- Consistency Check ---
+    trigger_consistency_check = args.always_run_consistency_check or \
+                                (r_script_was_run and not r_script_successfully_completed and args.run_consistency_check_on_fail)
+    
+    if trigger_consistency_check:
+        logging.info("Attempting to run consistency check...")
+        daten_txt_temp_path = None
+        temp_dir_for_daten = None
+        try:
+            # Find nops_scan_*.zip
+            nops_scan_zip_path = None
+            if os.path.isdir(scanned_pages_dir):
+                zip_files = glob.glob(os.path.join(scanned_pages_dir, "nops_scan_*.zip"))
+                if zip_files:
+                    nops_scan_zip_path = max(zip_files, key=os.path.getmtime) # Get the latest
+                    logging.info(f"Consistency Check: Found nops_scan ZIP: {nops_scan_zip_path}")
+            
+            if nops_scan_zip_path and os.path.exists(nops_scan_zip_path):
+                temp_dir_for_daten = tempfile.mkdtemp(prefix="daten_extract_")
+                with zipfile.ZipFile(nops_scan_zip_path, 'r') as zip_ref:
+                    if 'Daten.txt' in zip_ref.namelist():
+                        zip_ref.extract('Daten.txt', temp_dir_for_daten)
+                        daten_txt_temp_path = os.path.join(temp_dir_for_daten, 'Daten.txt')
+                        logging.info(f"Consistency Check: Extracted Daten.txt to {daten_txt_temp_path}")
+                    else:
+                        logging.warning("Consistency Check: Daten.txt not found inside the nops_scan ZIP.")
+            else:
+                logging.warning(f"Consistency Check: nops_scan ZIP not found in {scanned_pages_dir}. Cannot extract Daten.txt.")
+
+            # Check if essential files for consistency check exist
+            pln_exists = os.path.exists(args.student_info_csv)
+            daten_exists = daten_txt_temp_path and os.path.exists(daten_txt_temp_path)
+            
+            if pln_exists and daten_exists:
+                # processed_register_path might not exist if R failed early, so it's optional for the call
+                check_student_data_consistency(
+                    pln_path=args.student_info_csv,
+                    daten_txt_path=daten_txt_temp_path,
+                    processed_register_path=processed_register_path if os.path.exists(processed_register_path) else None,
+                    output_path_for_debug=output_path_abs
+                )
+            else:
+                logging.warning("Consistency Check: Skipping due to missing essential files "
+                               f"(Student Info CSV exists: {pln_exists}, Daten.txt extracted: {daten_exists}).")
+        except Exception as e_consistency:
+            logging.error(f"Error during consistency check preparation or execution: {e_consistency}", exc_info=True)
+        finally:
+            if temp_dir_for_daten and os.path.exists(temp_dir_for_daten):
+                shutil.rmtree(temp_dir_for_daten)
+                logging.debug(f"Cleaned up temporary directory for Daten.txt: {temp_dir_for_daten}")
+    
+    # --- Results Analysis ---
+    # Run analysis if flag is set AND (R script completed OR R script was skipped because results exist)
+    should_run_analysis = args.run_analysis and \
+                          (r_script_successfully_completed or (not r_script_was_run and os.path.exists(results_csv_path)))
+
+    if should_run_analysis:
+        if os.path.exists(results_csv_path):
+            if args.max_score is not None:
+                logging.info("Running exam results analysis...")
+                analysis_output_dir = os.path.join(output_path_abs, "analysis_plots")
+                analyze_results(
+                    csv_filepath=results_csv_path,
+                    max_score=args.max_score,
+                    output_dir=analysis_output_dir
+                )
+            else:
+                logging.warning("Skipping results analysis: --max-score not provided.")
+        else:
+            logging.warning(f"Skipping results analysis: Results CSV file '{results_csv_path}' not found.")
+    elif args.run_analysis: # Flag was true, but conditions not met
+        logging.info(f"Results analysis was requested but conditions not met (R success: {r_script_successfully_completed}, Results CSV exists: {os.path.exists(results_csv_path)})")
+
+
+    # --- Final Status ---
+    if r_script_was_run:
+        if r_script_successfully_completed and os.path.exists(results_csv_path):
+            logging.info("Exam correction process completed successfully (R script run and results found).")
+            sys.exit(0)
+        elif r_script_successfully_completed and not os.path.exists(results_csv_path):
+            logging.error("Exam correction process indicates R script success, but results CSV is missing. Please check R logs.")
+            sys.exit(1)
+        else: # R script failed
+            logging.error("Exam correction process failed (R script execution error). Check logs for details.")
+            sys.exit(1)
+    elif os.path.exists(results_csv_path) and args.run_analysis : # R script not run, results existed, analysis was run
+         logging.info("Exam correction process: R script skipped (results existed), analysis performed.")
+         sys.exit(0)
+    elif os.path.exists(results_csv_path) and not args.run_analysis : # R script not run, results didn't exist (shouldn't happen with current logic unless --force-r-eval was false and file vanished)
+         logging.info("Exam correction process: R script skipped (results existed), analysis was disabled by user.")
+         sys.exit(0)
+    else: # R script not run, and results didn't exist (shouldn't happen with current logic unless --force-r-eval was false and file vanished)
+        logging.error("Exam correction process: R script was not run and no pre-existing results found. This state should generally not be reached.")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

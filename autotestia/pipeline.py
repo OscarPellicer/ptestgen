@@ -74,7 +74,8 @@ class AutoTestIAPipeline:
             shuffle_answers_seed: Optional[int] = 0,
             num_final_questions: Optional[int] = None,
             rexams_title: Optional[str] = None,
-            rexams_course: Optional[str] = None
+            rexams_course: Optional[str] = None,
+            rexams_date: Optional[str] = None
             ) -> str:
         """
         Runs the AutoTestIA pipeline.
@@ -100,6 +101,7 @@ class AutoTestIAPipeline:
             num_final_questions: Number of questions to select randomly from the final set. None means use all.
             rexams_title: Custom title for R/exams PDF output. If None, R script default is used.
             rexams_course: Custom course name for R/exams PDF output. If None, R script default is used.
+            rexams_date: Custom date for R/exams PDF output. If None, R script default is used.
 
         Returns:
             The path to the intermediate Markdown file.
@@ -457,6 +459,8 @@ class AutoTestIAPipeline:
                 r_exam_custom_params["exam-title"] = rexams_title
             if rexams_course is not None:
                 r_exam_custom_params["course"] = rexams_course
+            if rexams_date is not None:
+                r_exam_custom_params["date"] = rexams_date
             
             num_exam_models = int(r_exam_custom_params.get("n_models", 4))
 
