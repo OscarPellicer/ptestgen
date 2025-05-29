@@ -50,7 +50,7 @@ except ImportError: # Should not happen if file exists, but good for robustness
     POSTPROCESSOR_PLAYWRIGHT_AVAILABLE = False
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s') # REMOVE THIS LINE
 
 # Path to the R script for correction, assuming it's in the same directory as this wrapper
 R_CORRECTION_SCRIPT_PATH = os.path.join(os.path.dirname(__file__), "run_autocorrection.R")
@@ -353,7 +353,26 @@ def main():
     parser.add_argument("--student-csv-encoding", type=str, default="UTF-8")
     parser.add_argument("--registration-format", type=str, default="%08s")
 
+    # --- PNG Generation Control ---
+    parser.add_argument("--force-png-generation", action="store_true", default=False,
+                        help="Force regeneration of PNGs from student HTML reports even if they already exist.")
+    
+    # --- Log Level Control ---
+    parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="Set the log level. Default is INFO.")
+
     args = parser.parse_args()
+    # Configure logging as early as possible using the parsed log level
+    # Ensure the format string is included here if it was removed from a module-level call
+    log_level_to_set = args.log_level.upper()
+    logging.basicConfig(level=log_level_to_set, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    # Forcefully set level for the root logger and all existing loggers
+    # This can help if other modules initialized their loggers before basicConfig was fully effective for them.
+    logging.getLogger().setLevel(log_level_to_set)
+    for logger_name in logging.Logger.manager.loggerDict:
+        logging.getLogger(logger_name).setLevel(log_level_to_set)
+
     # ... (logging guidelines from your script) ...
     logging.info("To ensure optimal processing by R/exams:")
     logging.info("  Scanning: 300 DPI, Black and White (1-bit), PDF format.")
@@ -489,7 +508,7 @@ def main():
         if POSTPROCESSOR_PLAYWRIGHT_AVAILABLE:
             logging.info("Attempting to generate PNGs from student HTML reports (if exam_corrected_results.zip was produced).")
             try:
-                process_exam_results_zip(output_path_abs) # Pass the main output dir where the zip is expected
+                process_exam_results_zip(output_path_abs, force_regeneration=args.force_png_generation) # Pass the force flag
             except Exception as e_postproc:
                 logging.error(f"An error occurred during student report PNG generation: {e_postproc}", exc_info=True)
         else:

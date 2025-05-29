@@ -74,11 +74,16 @@ def convert_html_to_png(html_file_path: str, png_output_path: str, viewport_widt
         logging.error(f"Unexpected error during HTML to PNG conversion for '{html_file_path}': {e}", exc_info=True)
         return False
 
-def process_exam_results_zip(exams_output_dir: str):
+def process_exam_results_zip(exams_output_dir: str, force_regeneration: bool = False):
     """
     Unzips 'exam_corrected_results.zip' found in 'exams_output_dir',
     looks for an HTML file in each student's subfolder, and converts it to a PNG.
     The PNGs are saved in a new 'exam_corrected_results_png' directory.
+
+    Args:
+        exams_output_dir: The directory where 'exam_corrected_results.zip' is located.
+        force_regeneration: If True, existing PNGs will be overwritten. 
+                              If False, skips generation if the output PNG directory exists and is not empty.
     """
     if not PLAYWRIGHT_AVAILABLE:
         logging.warning("Playwright is not available. Skipping generation of PNGs from student HTML reports.")
@@ -92,6 +97,10 @@ def process_exam_results_zip(exams_output_dir: str):
     
     png_output_dir_name = "exam_corrected_results_png"
     png_main_output_dir = os.path.join(exams_output_dir, png_output_dir_name)
+
+    if not force_regeneration and os.path.isdir(png_main_output_dir) and os.listdir(png_main_output_dir):
+        logging.info(f"PNG output directory '{png_main_output_dir}' already exists and is not empty. Skipping PNG generation. Use force option to regenerate.")
+        return
 
     if not os.path.isfile(zip_filepath):
         logging.warning(f"'{zip_filename}' not found in '{exams_output_dir}'. Skipping PNG generation for student reports.")
@@ -200,6 +209,10 @@ if __name__ == '__main__':
         print(f"Created dummy zip for testing: {dummy_zip_path}")
         print(f"Running process_exam_results_zip on: {test_output_dir}")
         process_exam_results_zip(test_output_dir)
+        print(f"Running again, should skip if not forced (and if PNGs were created):")
+        process_exam_results_zip(test_output_dir, force_regeneration=False) 
+        print(f"Running with force_regeneration=True:")
+        process_exam_results_zip(test_output_dir, force_regeneration=True)
         print(f"Check the directory '{os.path.join(test_output_dir, 'exam_corrected_results_png')}' for output PNGs.")
         # Clean up dummy files after test
         # shutil.rmtree(test_output_dir) # Comment out if you want to inspect output
