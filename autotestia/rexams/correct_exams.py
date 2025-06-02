@@ -361,6 +361,12 @@ def main():
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="Set the log level. Default is INFO.")
 
+    # --- Question Voiding Arguments (passed to analyze_results) ---
+    parser.add_argument("--void-questions", type=str, default=None,
+                        help="Comma-separated list of question numbers to remove from score calculation during analysis (e.g., '3,4').")
+    parser.add_argument("--void-questions-nicely", type=str, default=None,
+                        help="Comma-separated list of question numbers to void if incorrect/NA during analysis, count if correct (e.g., '5,6').")
+
     args = parser.parse_args()
     # Configure logging as early as possible using the parsed log level
     # Ensure the format string is included here if it was removed from a module-level call
@@ -492,7 +498,9 @@ def main():
                 analyze_results(
                     csv_filepath=results_csv_path,
                     max_score=args.max_score,
-                    output_dir=analysis_output_dir
+                    output_dir=analysis_output_dir,
+                    void_questions_str=args.void_questions,
+                    void_questions_nicely_str=args.void_questions_nicely
                 )
             else:
                 logging.warning("Skipping results analysis: --max-score not provided.")

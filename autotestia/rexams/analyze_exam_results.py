@@ -6,16 +6,31 @@ import numpy as np
 from collections import Counter
 import unidecode # For improved alphabetical sorting
 import logging
+from typing import Optional, List # Added Optional, List
+from tabulate import tabulate # Added tabulate import
 
-def analyze_results(csv_filepath, max_score, output_dir="."):
+def parse_q_list(q_str: Optional[str]) -> List[int]:
+    """Converts a comma-separated string of question numbers to a sorted list of unique integers."""
+    if not q_str:
+        return []
+    try:
+        return sorted(list(set(int(q.strip()) for q in q_str.split(',') if q.strip().isdigit())))
+    except ValueError:
+        logging.warning(f"Invalid format for question list string: '{q_str}'. Expected comma-separated numbers. Returning empty list.")
+        return []
+
+def analyze_results(csv_filepath, max_score, output_dir=".", void_questions_str: Optional[str] = None, void_questions_nicely_str: Optional[str] = None):
     """
     Analyzes exam results from a CSV file, scales scores to 0-10, 
     plots score distribution with 11 specific bars, and shows statistics.
+    Allows for voiding questions or voiding them 'nicely' (only if incorrect/unanswered).
 
     Args:
         csv_filepath (str): Path to the exam results CSV file.
         max_score (float): The maximum possible raw score for the exam (for normalization).
         output_dir (str): Directory to save the output plot.
+        void_questions_str (Optional[str]): Comma-separated string of question numbers to void completely.
+        void_questions_nicely_str (Optional[str]): Comma-separated string of question numbers to void only if incorrect/NA.
     """
     if not os.path.exists(csv_filepath):
         print(f"Error: CSV file not found at {csv_filepath}")
@@ -60,9 +75,58 @@ def analyze_results(csv_filepath, max_score, output_dir="."):
     if df.empty:
         print("No valid numeric data in 'points' column after cleaning.")
         return
+
+    # --- Store original scores for report if adjustments are made later ---
+    df['points_raw_original_for_report'] = df['points_numeric'].copy()
+    df['score_0_10_original_for_report'] = (df['points_raw_original_for_report'] / max_score) * 10
+    df['score_0_10_original_clipped_for_report'] = np.clip(df['score_0_10_original_for_report'], 0, 10)
+
+    # --- Process voided questions ---
+    void_q_list = parse_q_list(void_questions_str)
+    nice_q_list_initial = parse_q_list(void_questions_nicely_str)
+    # Ensure nice_q_list does not overlap with void_q_list (void takes precedence)
+    nice_q_list = [q for q in nice_q_list_initial if q not in void_q_list]
+
+    adjustments_made = bool(void_q_list or nice_q_list)
+
+    points_for_scaling = df['points_numeric'].copy()
+    # Initialize max_score_for_scaling as a Series
+    max_score_for_scaling = pd.Series([float(max_score)] * len(df), index=df.index)
+
+    if adjustments_made:
+        logging.info("Applying question adjustments...")
+        for q_num in void_q_list:
+            points_col_name = f'points.{q_num}'
+            if points_col_name in df.columns:
+                logging.info(f"Voiding question {q_num}: Removing points and reducing max score by 1.")
+                # Ensure points for this question are numeric before subtraction
+                q_points_numeric = pd.to_numeric(df[points_col_name], errors='coerce').fillna(0)
+                points_for_scaling -= q_points_numeric
+                max_score_for_scaling -= 1.0
+            else:
+                logging.warning(f"Cannot void question {q_num}: Column '{points_col_name}' not found.")
+
+        for q_num in nice_q_list:
+            points_col_name = f'points.{q_num}'
+            if points_col_name in df.columns:
+                logging.info(f"Nicely voiding question {q_num} for incorrect/NA answers.")
+                q_points_numeric = pd.to_numeric(df[points_col_name], errors='coerce').fillna(0)
+                condition_incorrect_or_na = q_points_numeric <= 0
+                
+                # Subtract points (if negative, this adds back penalty; if 0, no change)
+                points_for_scaling.loc[condition_incorrect_or_na] -= q_points_numeric.loc[condition_incorrect_or_na]
+                # Reduce max score for these students for this question
+                max_score_for_scaling.loc[condition_incorrect_or_na] -= 1.0
+            else:
+                logging.warning(f"Cannot 'nicely' void question {q_num}: Column '{points_col_name}' not found.")
         
-    # Scale scores to 0-10 range
-    df['score_0_10'] = (df['points_numeric'] / max_score) * 10
+        df['points_adjusted_for_report'] = points_for_scaling.copy()
+        df['max_score_adjusted_for_report'] = max_score_for_scaling.copy()
+
+
+    # Scale scores to 0-10 range using potentially adjusted points and max_score
+    # df['score_0_10'] will store the (potentially adjusted) final scaled score
+    df['score_0_10'] = (points_for_scaling / max_score_for_scaling.where(max_score_for_scaling > 0, np.nan)) * 10
     
     # Clip scores to be within 0 and 10 (or slightly above 10 if points can exceed max_score significantly)
     # If scores are strictly capped at max_score, then this will cap scaled scores at 10.
@@ -94,10 +158,8 @@ def analyze_results(csv_filepath, max_score, output_dir="."):
     #   - ...
     #   - scores in [9.5, 10.5) map to bin 10 (assuming scores are clipped at 10, floor(10.0 + 0.5) = 10)
     # This aligns with the bar for score X covering the visual range [X-0.5, X+0.5].
-    df['score_binned_for_plot'] = np.floor(df['score_0_10_clipped_for_stats'] + 0.5).astype(int)
-    # Ensure bins are within the 0-10 range, especially if original scores could be slightly outside
-    # due to floating point issues before clipping, though df['score_0_10_clipped_for_stats'] handles this.
-    df['score_binned_for_plot'] = np.clip(df['score_binned_for_plot'], 0, 10)
+    # Use the (potentially adjusted) score_0_10_clipped_for_stats for binning
+    df['score_binned_for_plot'] = np.floor(df['score_0_10_clipped_for_stats'].fillna(0) + 0.5).astype(int)
 
 
     # 1. Calculate frequencies for scores 0 through 10 using the binned scores
@@ -160,8 +222,15 @@ def analyze_results(csv_filepath, max_score, output_dir="."):
     print(f"Number of students: {total_students}")
     print(f"Number of students passed (score >= {passing_threshold_0_10}): {num_passed} ({pass_rate:.2f}%)")
 
-    print(f"Raw score range (points): {df['points_numeric'].min():.2f} - {df['points_numeric'].max():.2f}")
+    # Display raw points based on whether adjustments were made
+    if adjustments_made:
+        print(f"Adjusted raw score range (points_adjusted): {points_for_scaling.min():.2f} - {points_for_scaling.max():.2f} (out of effective max {max_score_for_scaling.min() if max_score_for_scaling.nunique() > 1 else max_score_for_scaling.unique()[0] if max_score_for_scaling.nunique() == 1 else 'N/A'} to {max_score_for_scaling.max()})")
+        print(f"Original raw score range (points): {df['points_raw_original_for_report'].min():.2f} - {df['points_raw_original_for_report'].max():.2f} (out of original max {max_score})")
+    else:
+        print(f"Raw score range (points): {df['points_numeric'].min():.2f} - {df['points_numeric'].max():.2f} (out of {max_score})")
+    
     # For score_0_10, show actual min/max before clipping for stats to understand full range if scores > 10
+    # This 'score_0_10' is now the potentially adjusted one
     print(f"Scaled score (0-10 actual) range: {df['score_0_10'].min():.2f} - {df['score_0_10'].max():.2f}")
 
     # --- Print Student Marks (Alphabetical Order) ---
@@ -214,43 +283,139 @@ def analyze_results(csv_filepath, max_score, output_dir="."):
             students_info_df.rename(columns={'DNI': 'registration_original_pln', 'Nom': 'FirstName', 'Cognoms': 'Surnames'}, inplace=True)
 
             # Prepare merge keys
-            # Key from exam_corrected_results.csv (df): strip spaces. This is what's shown in "Unknown Student (Registration: XXX)"
             df['merge_key'] = df['registration'].astype(str).str.strip()
-            
-            # Key from pln_2025.csv (students_info_df): strip spaces and leading zeros from DNI.
             students_info_df['merge_key'] = students_info_df['registration_original_pln'].astype(str).str.strip().str.lstrip('0')
             
-            # Select only necessary columns before merge to avoid duplicate 'registration' columns if names were the same
-            exam_scores_df = df[['merge_key', 'registration', 'score_0_10_clipped_for_stats']].copy()
-            # Rename the original registration from df to avoid conflict if we were to merge on 'registration' directly
-            exam_scores_df.rename(columns={'registration': 'registration_from_exam_results'}, inplace=True)
+            # Select necessary columns for student list
+            cols_for_student_list = ['merge_key', 'registration']
+            rename_map_for_student_list = {'registration': 'registration_from_exam_results'}
 
+            if adjustments_made:
+                cols_for_student_list.extend([
+                    'score_0_10_original_clipped_for_report',
+                    'points_raw_original_for_report',
+                    'score_0_10_clipped_for_stats', # This is the adjusted one for stats
+                    'points_adjusted_for_report',
+                    'max_score_adjusted_for_report'
+                ])
+                rename_map_for_student_list.update({
+                    'score_0_10_original_clipped_for_report': 'OriginalScaledScore',
+                    'points_raw_original_for_report': 'OriginalRawPoints',
+                    'score_0_10_clipped_for_stats': 'AdjustedScaledScore',
+                    'points_adjusted_for_report': 'AdjustedRawPoints',
+                    'max_score_adjusted_for_report': 'AdjustedMaxScorePossible'
+                })
+            else:
+                cols_for_student_list.extend([
+                    'score_0_10_clipped_for_stats', # This is the main (and only) scaled score
+                    'points_numeric'                # This is the main (and only) raw score
+                ])
+                rename_map_for_student_list.update({
+                    'score_0_10_clipped_for_stats': 'ScaledScore',
+                    'points_numeric': 'RawPoints'
+                })
+            
+            exam_scores_df = df[cols_for_student_list].copy()
+            exam_scores_df.rename(columns=rename_map_for_student_list, inplace=True)
+            
             students_info_to_merge = students_info_df[['merge_key', 'FirstName', 'Surnames', 'registration_original_pln']].copy()
-
             merged_students_df = pd.merge(exam_scores_df, students_info_to_merge, on='merge_key', how='left')
 
-            # Create formatted name: "Surnames, FirstName"
-            # Use 'registration_from_exam_results' for the "Unknown Student" message, as that's the ID from the results file.
             merged_students_df['FormattedName'] = np.where(
                 merged_students_df['FirstName'].notna() & merged_students_df['Surnames'].notna(),
                 merged_students_df['Surnames'] + ", " + merged_students_df['FirstName'],
                 "Unknown Student (Registration: " + merged_students_df['registration_from_exam_results'].astype(str) + ")"
             )
             
-            results_to_print_df = merged_students_df[['FormattedName', 'score_0_10_clipped_for_stats']].copy()
-            results_to_print_df.rename(columns={'score_0_10_clipped_for_stats': 'ScaledScore_0_10'}, inplace=True)
+            # Select columns for printing
+            # The specific score column for 'SortableName' and printing depends on adjustments_made
+            final_cols_for_print = ['FormattedName']
+            if adjustments_made:
+                final_cols_for_print.extend(['OriginalScaledScore', 'OriginalRawPoints', 
+                                             'AdjustedScaledScore', 'AdjustedRawPoints', 'AdjustedMaxScorePossible'])
+            else:
+                final_cols_for_print.extend(['ScaledScore', 'RawPoints'])
+
+            results_to_print_df = merged_students_df[final_cols_for_print].copy()
             
-            # Create a sortable name using unidecode to handle accents correctly for sorting
             results_to_print_df['SortableName'] = results_to_print_df['FormattedName'].apply(
-                lambda x: unidecode.unidecode(str(x)).lower() # Ensure it's a string and use lower for case-insensitivity
+                lambda x: unidecode.unidecode(str(x)).lower()
             )
             results_to_print_df.sort_values(by='SortableName', inplace=True)
+
+            original_overall_max_score = float(max_score)
 
             if results_to_print_df.empty:
                 print("No student data available to display for the marks list.")
             else:
+                table_data = []
+                headers = ["Student Name"]
+                if adjustments_made:
+                    headers.extend([
+                        "Adjusted Score (0-10)", "Original Score (0-10)",
+                        "Adjusted Raw Points", "Adjusted Max Points",
+                        "Original Raw Points", "Original Max Points"
+                    ])
+                else:
+                    headers.extend(["Scaled Score (0-10)", "Raw Points", "Max Points"])
+
                 for _, row in results_to_print_df.iterrows():
-                    print(f"{row['FormattedName']}: {row['ScaledScore_0_10']:.2f}")
+                    name = row['FormattedName']
+                    row_data = [name]
+                    if adjustments_made and 'AdjustedScaledScore' in row and 'OriginalScaledScore' in row:
+                        original_scaled = row['OriginalScaledScore']
+                        adjusted_scaled = row['AdjustedScaledScore']
+                        original_raw = row['OriginalRawPoints']
+                        adjusted_raw = row['AdjustedRawPoints']
+                        adjusted_max_student = row['AdjustedMaxScorePossible']
+
+                        adj_scaled_is_nan = pd.isna(adjusted_scaled)
+                        orig_scaled_is_nan = pd.isna(original_scaled)
+                        
+                        adj_scaled_str = f"{adjusted_scaled:.2f}" if not adj_scaled_is_nan else "N/A"
+                        orig_scaled_str = f"{original_scaled:.2f}" if not orig_scaled_is_nan else "N/A"
+                        adj_raw_str = f"{adjusted_raw:.2f}" if not pd.isna(adjusted_raw) else "N/A"
+                        adj_max_str = f"{adjusted_max_student:.2f}" if not pd.isna(adjusted_max_student) else "N/A"
+                        orig_raw_str = f"{original_raw:.2f}" if not pd.isna(original_raw) else "N/A"
+                        orig_max_str = f"{original_overall_max_score:.2f}"
+
+                        changed = False
+                        if adj_scaled_is_nan != orig_scaled_is_nan:
+                            changed = True
+                        elif not adj_scaled_is_nan and not orig_scaled_is_nan and not np.isclose(original_scaled, adjusted_scaled):
+                            changed = True
+
+                        if changed:
+                            row_data.extend([
+                                adj_scaled_str, orig_scaled_str,
+                                adj_raw_str, adj_max_str,
+                                orig_raw_str, orig_max_str
+                            ])
+                        else: # Score didn't change, or only one set of scores is relevant (e.g. only adjusted makes sense)
+                            row_data.extend([
+                                adj_scaled_str, "-", # Indicate original is same or not applicable to show separately
+                                adj_raw_str, adj_max_str,
+                                "-", "-" # Original raw/max not shown if score unchanged
+                            ])
+                    
+                    elif 'ScaledScore' in row and 'RawPoints' in row: # No adjustments
+                        scaled_score_val = row['ScaledScore']
+                        raw_points_val = row['RawPoints']
+                        scaled_str = f"{scaled_score_val:.2f}" if not pd.isna(scaled_score_val) else "N/A"
+                        raw_str = f"{raw_points_val:.2f}" if not pd.isna(raw_points_val) else "N/A"
+                        orig_max_str = f"{original_overall_max_score:.2f}"
+                        row_data.extend([scaled_str, raw_str, orig_max_str])
+                    else:
+                        # Fallback if somehow columns are missing
+                        score_display_val = row.get('AdjustedScaledScore', row.get('ScaledScore', float('nan')))
+                        score_display_str = f"{score_display_val:.2f}" if not pd.isna(score_display_val) else "N/A"
+                        if adjustments_made:
+                             row_data.extend([score_display_str, "N/A", "N/A", "N/A", "N/A", "N/A"])
+                        else:
+                             row_data.extend([score_display_str, "N/A", "N/A"])
+                    table_data.append(row_data)
+                
+                print(tabulate(table_data, headers=headers, floatfmt=".2f"))
 
         except FileNotFoundError:
              print(f"Error: The student information file ({pln_student_list_path}) was not found during the student marks listing.")
@@ -348,7 +513,7 @@ def analyze_results(csv_filepath, max_score, output_dir="."):
                     else:
                         correct_choice_idx = -1 # No '1' found in an otherwise valid-looking solution string
                 
-                logging.debug(f"DEBUG Q{q_num} (sol_col: {sol_col}): Parsed correct_solution_str='{correct_solution_str}', num_actual_choices={num_actual_choices}, Derived correct_choice_idx={correct_choice_idx}")
+                # logging.debug(f"DEBUG Q{q_num} (sol_col: {sol_col}): Parsed correct_solution_str='{correct_solution_str}', num_actual_choices={num_actual_choices}, Derived correct_choice_idx={correct_choice_idx}")
 
                 response_counts = [0] * (num_actual_choices + 1)  # +1 for "Not Answered"
 
@@ -363,7 +528,7 @@ def analyze_results(csv_filepath, max_score, output_dir="."):
                     
                     # Student answer strings have a fixed length (e.g., 5), but we only care about the first num_actual_choices (e.g., 4) for selection
                     if len(processed_ans_str) != fixed_answer_string_length:
-                        logging.debug(f"Q{q_num}: Student answer string '{processed_ans_str}' (original value: '{answer_str_val}') length ({len(processed_ans_str)}) does not match expected fixed answer string length ({fixed_answer_string_length}). Treating as NA.")
+                        # logging.debug(f"Q{q_num}: Student answer string '{processed_ans_str}' (original value: '{answer_str_val}') length ({len(processed_ans_str)}) does not match expected fixed answer string length ({fixed_answer_string_length}). Treating as NA.")
                         response_counts[num_actual_choices] += 1 # NA
                         continue
 
@@ -374,7 +539,8 @@ def analyze_results(csv_filepath, max_score, output_dir="."):
                         response_counts[num_actual_choices] += 1  # NA
                     else:
                         if relevant_answer_part.count('1') > 1:
-                             logging.debug(f"Q{q_num}: Student answer relevant part '{relevant_answer_part}' (from '{processed_ans_str}') has multiple selections. Counting first one found.")
+                            # logging.debug(f"Q{q_num}: Student answer relevant part '{relevant_answer_part}' (from '{processed_ans_str}') has multiple selections. Counting first one found.")
+                            pass # Added pass to maintain block structure
                         try:
                             selected_idx = relevant_answer_part.find('1')
                             # selected_idx is within the bounds of the relevant_answer_part (0 to num_actual_choices-1)
@@ -382,10 +548,11 @@ def analyze_results(csv_filepath, max_score, output_dir="."):
                                 response_counts[selected_idx] += 1
                             else: 
                                 # This case should ideally not be hit if .find('1') worked and '1' was in relevant_answer_part
-                                logging.debug(f"Q{q_num}: Invalid selected index {selected_idx} from relevant part '{relevant_answer_part}' (from '{processed_ans_str}'). Treating as NA.")
+                                # logging.debug(f"Q{q_num}: Invalid selected index {selected_idx} from relevant part '{relevant_answer_part}' (from '{processed_ans_str}'). Treating as NA.")
                                 response_counts[num_actual_choices] += 1 # NA
+                                pass # Added pass to maintain block structure
                         except Exception as e_parse_ans: 
-                            logging.warning(f"Q{q_num}: Error parsing student answer relevant part '{relevant_answer_part}' (from '{processed_ans_str}'): {e_parse_ans}. Treating as NA.")
+                            # logging.warning(f"Q{q_num}: Error parsing student answer relevant part '{relevant_answer_part}' (from '{processed_ans_str}'): {e_parse_ans}. Treating as NA.")
                             response_counts[num_actual_choices] += 1
 
                 all_question_stats.append({
@@ -442,18 +609,19 @@ def analyze_results(csv_filepath, max_score, output_dir="."):
                             # Re-confirming correct_idx is valid for this question's choices
                             if 0 <= q_data['correct_idx'] < current_plot_num_choices:
                                 bar_colors_for_q[q_data['correct_idx']] = '#2ca02c' 
-                                logging.debug(f"DEBUG Q{q_data['q_num']}: Applied GREEN. correct_idx={q_data['correct_idx']}, current_plot_num_choices={current_plot_num_choices}, bar_colors_for_q={bar_colors_for_q}") # DETAILED DEBUG
+                                # logging.debug(f"DEBUG Q{q_data['q_num']}: Applied GREEN. correct_idx={q_data['correct_idx']}, current_plot_num_choices={current_plot_num_choices}, bar_colors_for_q={bar_colors_for_q}") # DETAILED DEBUG
                             else:
                                 # This case implies the correct_idx was -1 or out of bounds for current_plot_num_choices
                                 # This can happen if the solution string for a question was all '0's or invalid
                                 # No green bar will be shown, which is correct if no single correct choice was identifiable
-                                logging.debug(f"Q{q_data['q_num']}: No valid correct_idx ({q_data['correct_idx']}) for coloring green bar. current_plot_num_choices={current_plot_num_choices}")
+                                # logging.debug(f"Q{q_data['q_num']}: No valid correct_idx ({q_data['correct_idx']}) for coloring green bar. current_plot_num_choices={current_plot_num_choices}")
+                                pass # Added pass to maintain block structure
 
                             group_center_x = question_group_centers_x[q_plot_idx]
                             start_x_for_bar_group = group_center_x - (bar_group_total_width_ratio / 2.0)
 
                             for choice_bar_k in range(num_bars_per_group):
-                                bar_x_center = start_x_for_bar_group + (choice_bar_k * single_bar_width) + (single_bar_width / 2.0)
+                                bar_x_center = start_x_for_bar_group + (choice_bar_k * single_bar_width)
                                 ax.bar(bar_x_center, counts[choice_bar_k], width=single_bar_width * 0.95,
                                        color=bar_colors_for_q[choice_bar_k], edgecolor='black', linewidth=0.5)
 
@@ -523,9 +691,15 @@ if __name__ == "__main__":
                         help="Maximum possible raw score for the exam (e.g., 30 for 30 raw points).")
     parser.add_argument("--output-plot-dir", default="exam_analysis_plots",
                         help="Directory to save the generated plot(s). Default: 'exam_analysis_plots'")
+    parser.add_argument("--void-questions", type=str, default=None,
+                        help="Comma-separated list of question numbers to remove from score calculation (e.g., '3,4').")
+    parser.add_argument("--void-questions-nicely", type=str, default=None,
+                        help="Comma-separated list of question numbers to void if incorrect/NA, count if correct (e.g., '5,6').")
     
     args = parser.parse_args()
 
     analyze_results(csv_filepath=args.results_csv, 
                     max_score=args.max_score, 
-                    output_dir=args.output_plot_dir) 
+                    output_dir=args.output_plot_dir,
+                    void_questions_str=args.void_questions,
+                    void_questions_nicely_str=args.void_questions_nicely) 
