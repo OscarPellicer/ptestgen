@@ -78,7 +78,7 @@ For each question, generate:
 
 {custom_generator_instructions}
 
-Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Output only the JSON object, nothing else.
+Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
 """
 
 IMAGE_GENERATION_SYSTEM_PROMPT = """
@@ -92,7 +92,7 @@ Provide:
 
 {custom_generator_instructions}
 
-Output the question as a single JSON object with keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the question on interpreting the visual information in the image, potentially using the context text for background. Output only the JSON object, nothing else.
+Output the question as a single JSON object with keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the question on interpreting the visual information in the image, potentially using the context text for background. OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
 """
 
 REVIEW_SYSTEM_PROMPT = """
@@ -111,7 +111,7 @@ Finally, if changes are needed, provide the corrected question (including the qu
 Input Question (JSON format):
 {question_json}
 
-Output your review as a JSON object with keys: "difficulty_score" (float), "quality_score" (float), "reviewed_question" (optional: a JSON object with keys: "text", "correct_answer", "distractors"). Output only the JSON object, nothing else.
+Output your review as a JSON object with keys: "difficulty_score" (float), "quality_score" (float), "reviewed_question" (optional: a JSON object with keys: "text", "correct_answer", "distractors"). OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
 """
 
 
@@ -120,5 +120,7 @@ Output your review as a JSON object with keys: "difficulty_score" (float), "qual
 LLM_TIMEOUT = 120
 # Max retries for LLM API calls
 LLM_MAX_RETRIES = 2
+# Base delay for retries (in seconds), will be subject to exponential backoff
+RETRY_DELAY_BASE = 2 # Added for retry logic
 
 # Add other configurations as needed 

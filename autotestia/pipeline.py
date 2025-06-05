@@ -1,9 +1,9 @@
 import os
 from typing import List, Optional
-import logging # Import logging
-import sys # Import sys for stderr
-import random # Import random
-import shutil # ADD THIS IMPORT
+import logging
+import sys
+import random
+import shutil
 
 from . import config
 from .schemas import Question
@@ -11,7 +11,7 @@ from .input_parser import parser
 from .agents.generator import QuestionGenerator
 from .agents.reviewer import QuestionReviewer
 from .output_formatter import markdown_writer, converters
-from .rexams import wrapper as rexams_wrapper # ADD THIS IMPOR
+from .rexams import generate_exams as rexams_wrapper
 
 class AutoTestIAPipeline:
     """Orchestrates the AutoTestIA question generation process."""

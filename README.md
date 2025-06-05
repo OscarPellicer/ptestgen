@@ -236,28 +236,35 @@ This command would (with `--split-pages` handled by Python by default):
     *   `--scan-thresholds`: Comma-separated pair for scan thresholds (e.g., `"0.04,0.42"`).
     *   `--partial-eval` / `--no-partial-eval`: Enable/disable partial scoring (default: enabled).
     *   `--negative-points`: Penalty for incorrect answers (default: -1/3).
-    *   `--max-score`: Maximum raw score of the exam (e.g., 44). Needed if you want to scale the final mark.
+    *   `--max-score`: Maximum raw score of the exam (e.g., 44). Needed if you want to scale the final mark or run analysis.
     *   `--scale-mark-to`: Target score to scale the final mark to (e.g., 10; default: 10.0).
 *   **PDF Processing Controls (Python vs R):**
-    *   `--split-pages` / `--no-split-pages` (`--split-pages-python-control` in the script): Enable PDF splitting & rotation by the Python script (default: False). If True, Python converts the `--all-scans-pdf` into individual processed page PDFs (using OpenCV for rotation and `pdf2image`) in `output-path/scanned_pages/` before calling R.
-    *   `--force-split` / `--no-force-split` (`--force-split-python-control` in the script): Force overwrite for PDF splitting (applies to Python splitting if `--split-pages` is on, or to R's splitting if `--split-pages` is off but R is expected to split).
-    *   `--python-rotate` / `--no-python-rotate` (`--python-rotate-control` in the script): Enable actual image rotation by Python if Python's `--split-pages` is active (default: True). If False, Python splits but does not rotate.
-    *   `--rotate-scans` / `--no-rotate-scans` (`--rotate-scans-r-control` in the script): Enable image rotation by R's `nops_scan` (only relevant if Python's `--split-pages` is off). (default: False)
+    *   `--split-pages` / `--no-split-pages` (`dest="split_pages_python_control"` in the script): Enable PDF splitting & rotation by the Python script (default: False). If True, Python converts the `--all-scans-pdf` into individual processed page PDFs (using OpenCV for rotation and `pdf2image`) in `output-path/scanned_pages/` before calling R.
+    *   `--force-split` / `--no-force-split` (`dest="force_split_python_control"` in the script): Force overwrite for PDF splitting (applies to Python splitting if `--split-pages` is on, or to R's splitting if `--split-pages` is off but R is expected to split).
+    *   `--python-rotate` / `--no-python-rotate` (`dest="python_rotate_control"` in the script): Enable actual image rotation by Python if Python's `--split-pages` is active (default: True). If False, Python splits but does not rotate.
+    *   `--rotate-scans` / `--no-rotate-scans` (`dest="rotate_scans_r_control"` in the script): Enable image rotation by R's `nops_scan` (only relevant if Python's `--split-pages` is off). (default: False)
 *   **Execution Flow Control:**
     *   `--force-r-eval`: Force R script evaluation even if results CSV exists (default: False).
-    *   `--force-nops-scan`: Force R's `nops_scan` to re-run (default: False).
+    *   `--force-nops-scan / --no-force-nops-scan`: Force R's `nops_scan` to re-run (default: `--no-force-nops-scan`).
 *   **Consistency Check Control (Python):**
     *   `--run-consistency-check-on-fail` / `--no-run-consistency-check-on-fail`: Run Python-based consistency check if R script fails (default: True).
     *   `--always-run-consistency-check`: Always run Python-based consistency check after R script attempt (default: False).
 *   **Analysis Control (Python):**
     *   `--run-analysis` / `--no-run-analysis`: Run Python-based results analysis (histogram, stats) if results CSV exists/is created (default: True).
+*   **Question Voiding (for Analysis):**
+    *   `--void-questions`: Comma-separated list of question numbers (e.g., "3,4") to remove from score calculation during analysis.
+    *   `--void-questions-nicely`: Comma-separated list of question numbers (e.g., "5,6") to void if incorrect/NA, but count if correct, during analysis.
 *   **Student CSV Customization (for R script):**
-    *   `--student-csv-id-col`: Column name for the unique student ID (e.g., username).
-    *   `--student-csv-reg-col`: Column name for the registration number (ID written on the exam sheet).
-    *   `--student-csv-name-col`: Column name for student's first name.
-    *   `--student-csv-surname-col`: Column name for student's surname.
+    *   `--student-csv-id-col`: Column name for the unique student ID (e.g., username, default: "ID.Usuario").
+    *   `--student-csv-reg-col`: Column name for the registration number (ID written on the exam sheet, default: "Número.de.Identificación").
+    *   `--student-csv-name-col`: Column name for student's first name (default: "Nombre").
+    *   `--student-csv-surname-col`: Column name for student's surname (default: "Apellidos").
     *   `--student-csv-encoding`: Encoding of your input student CSV file (default: `UTF-8`).
     *   `--registration-format`: `sprintf`-style format string for the registration number (default: `"%08s"`).
+*   **PNG Generation Control:**
+    *   `--force-png-generation`: Force regeneration of PNGs from student HTML reports (if available) even if they already exist (default: False).
+*   **Logging Control:**
+    *   `--log-level`: Set the log level (choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, default: `INFO`).
 
 ## Next Steps / TODO
 
