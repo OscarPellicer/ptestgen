@@ -8,7 +8,7 @@ except ImportError:
     print("You can install it by running: pip install python-Levenshtein")
     Levenshtein = None # So we can check its availability later
 
-def check_student_data_consistency(pln_path, daten_path, processed_path):
+def check_student_data_consistency(pln_path, daten_path, processed_path, output_path_for_debug: str = None):
     """
     Checks for inconsistencies between student registration lists and scanned exam data.
     Includes suggestions for similar DNIs if an exact match is not found.
@@ -17,6 +17,7 @@ def check_student_data_consistency(pln_path, daten_path, processed_path):
         pln_path (str): Path to the pln_2025.csv file.
         daten_path (str): Path to the Daten.txt file.
         processed_path (str): Path to the processed_student_register.csv file.
+        output_path_for_debug (str, optional): Path to a directory where debug/report files can be saved. Defaults to None.
     """
     issues_found = False
     report_lines = []

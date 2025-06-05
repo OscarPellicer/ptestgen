@@ -41,6 +41,7 @@ except ImportError:
 def find_fiducial_crosses(
     image_path: str,
     output_debug_path: Optional[str] = None,
+    bw_threshold_value: int = 97,
 ) -> Tuple[Optional[float], Optional[np.ndarray]]:
     """
     Detects two fiducial crosses at the bottom of an image and returns the angle
@@ -63,7 +64,7 @@ def find_fiducial_crosses(
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         # thresh = cv2.adaptiveThreshold(median_blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         #                                cv2.THRESH_BINARY_INV, blockSize=25, C=5) #Many errors
-        _, processed_for_contours = cv2.threshold(gray, 97, 255, cv2.THRESH_BINARY_INV) 
+        _, processed_for_contours = cv2.threshold(gray, bw_threshold_value, 255, cv2.THRESH_BINARY_INV) 
         # 127 -> 7 errors, 100 -> 4, 75 -> 5, 88 -> 5, 110 -> 5, 95 -> 4, 97 -> 4
         
         if output_debug_path:
@@ -275,6 +276,7 @@ def split_and_rotate_scans(
     force_processing: bool = False,
     python_script_output_path: Optional[str] = None, # For creating debug image subfolder
     do_python_rotation: bool = True,
+    python_bw_threshold: int = 97,
 ) -> Optional[str]:
     """
     Splits a multi-page PDF, attempts to rotate each page using fiducial crosses
@@ -352,6 +354,7 @@ def split_and_rotate_scans(
                 angle_from_fiducials, image_from_fiducial_fn = find_fiducial_crosses(
                     temp_png_path,
                     output_debug_path=debug_fiducial_path,
+                    bw_threshold_value=python_bw_threshold,
                 )
                 
                 angle_for_pdf_save = None

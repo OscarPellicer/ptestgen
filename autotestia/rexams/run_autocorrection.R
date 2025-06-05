@@ -50,7 +50,13 @@ option_list <- list(
   make_option(c("--force-nops-scan"), action = "store_true", default = FALSE,
               help = "Force nops_scan to re-run even if its output ZIP exists. [default %default]"),
   make_option(c("--rotate-scans"), action = "store_true", default = FALSE,
-              help = "Enable image rotation during nops_scan. Default is FALSE, assuming input PDFs are correctly oriented. [default %default]")
+              help = "Enable image rotation during nops_scan. Default is FALSE, assuming input PDFs are correctly oriented. [default %default]"),
+  make_option(c("--custom-mark-thresholds"), type = "character", default = NULL,
+              help = "Comma-separated percentage thresholds for custom marks (e.g., '0.1,0.2,...,1.0'). Values must be >0 and <=1, and strictly increasing. If not provided and --omit-nops-marks is FALSE, a default Spanish grading system is used (thresholds '0.099,0.199,...,0.949'). [default: Spanish system or none if omitting marks]", metavar = "character"),
+  make_option(c("--custom-mark-labels"), type = "character", default = NULL,
+              help = "Comma-separated labels for custom marks (e.g., 'Label1,Label2,...,Label11'). Must have one more label than thresholds. If not provided and --omit-nops-marks is FALSE, default Spanish word labels are used (e.g., 'Suspenso Muy Deficiente,...,Matrícula de Honor'). Required if --custom-mark-thresholds is specified by the user. [default: Spanish system or none if omitting marks]", metavar = "character"),
+  make_option(c("--omit-nops-marks"), action="store_true", default=FALSE,
+              help="Omit the calculation of categorical marks by nops_eval (e.g., 0-10 scale). The 'mark' column in nops_eval outputs will be NA, overriding any custom/default mark thresholds/labels for this step.")
 )
 
 opt_parser <- OptionParser(option_list = option_list)
@@ -322,6 +328,54 @@ message(sprintf("Temporarily changed working directory for nops_eval to: %s", ge
 # Use only the basename for the results argument, nops_eval will create files in the current WD
 results_file_basename_only <- "exam_corrected_results"
 
+# --- Prepare mark and labels arguments for nops_eval ---
+# Default Spanish grading system (word labels, precise 0-10 point equivalent thresholds)
+default_spanish_thresholds_str <- "0.499,0.599,0.699,0.899,0.949"
+default_spanish_labels_str <- "\"Suspenso\",\"Aprobado\",\"Bien\",\"Notable\",\"Sobresaliente\",\"Matrícula de Honor\""
+
+nops_mark_arg <- NULL
+nops_labels_arg <- NULL
+
+if (opts$`omit-nops-marks`) {
+  message("Omitting categorical marks from nops_eval as per --omit-nops-marks. 'mark' column in nops_eval outputs will be NA.")
+  # nops_mark_arg and nops_labels_arg remain NULL
+} else {
+  current_thresholds_str <- opts$`custom-mark-thresholds`
+  current_labels_str <- opts$`custom-mark-labels`
+
+  if (is.null(current_thresholds_str) && is.null(current_labels_str)) {
+    message("Using default Spanish grading system for nops_eval marks.")
+    current_thresholds_str <- default_spanish_thresholds_str
+    current_labels_str <- default_spanish_labels_str
+  } else if (is.null(current_thresholds_str) || is.null(current_labels_str)) {
+    stop("--custom-mark-thresholds and --custom-mark-labels must both be provided if one is set by the user and --omit-nops-marks is FALSE.")
+  } else {
+     message("Using user-provided custom mark thresholds and labels for nops_eval.")
+  }
+
+  nops_mark_arg_str <- trimws(strsplit(current_thresholds_str, ",")[[1]])
+  nops_mark_arg <- as.numeric(nops_mark_arg_str)
+  
+  if (any(is.na(nops_mark_arg)) || any(nops_mark_arg <= 0) || any(nops_mark_arg > 1)) {
+    stop("Invalid mark thresholds. Values must be numeric, > 0 and <= 1.")
+  }
+  # Check for strictly increasing order
+  if (length(nops_mark_arg) > 1 && any(diff(nops_mark_arg) <= 0)) {
+      stop("Mark thresholds must be strictly increasing (e.g., 0.5,0.6,0.7 not 0.5,0.7,0.6).")
+  }
+
+  nops_labels_arg_str <- trimws(strsplit(current_labels_str, ",")[[1]])
+  nops_labels_arg <- nops_labels_arg_str # Keep as character
+
+  if (length(nops_labels_arg) != (length(nops_mark_arg) + 1)) {
+    stop(sprintf("Number of mark labels (%d) must be one greater than the number of mark thresholds (%d). Provided thresholds: '%s', labels: '%s'.",
+                 length(nops_labels_arg), length(nops_mark_arg),
+                 current_thresholds_str, current_labels_str))
+  }
+  message(sprintf("nops_eval will use mark thresholds: [%s] and labels: [%s].",
+                  paste(nops_mark_arg, collapse=", "), paste(nops_labels_arg, collapse=", ")))
+}
+
 nops_eval(
   register = derived_processed_register_path, # This should be an absolute path
   solutions = opts$`solutions-rds`,          # This should be an absolute path
@@ -329,6 +383,8 @@ nops_eval(
   results = results_file_basename_only,      # Pass only the basename
   language = opts$language,
   eval = exams_eval(partial = opts$partial, negative = opts$`negative-points`, rule = "false"),
+  mark = nops_mark_arg,
+  labels = nops_labels_arg,
   interactive = FALSE # Explicitly set to FALSE for non-interactive script execution
 )
 

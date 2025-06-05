@@ -136,14 +136,17 @@ def run_correction_script(
     max_score: Optional[float] = None,
     scale_mark_to: float = 10.0,
     split_pages_python_control: bool = False,
-    force_split_python_control: bool = False,
+    force_split_operation: bool = False,
     r_executable: Optional[str] = None,
     student_csv_cols: Optional[dict] = None,
     student_csv_encoding: str = "UTF-8",
     registration_format: str = "%08s",
-    force_nops_scan: bool = False,
-    rotate_scans_r_control: bool = False,
-    python_rotate_control: bool = True,
+    force_nops_scan_r_script: bool = False,
+    python_rotate_control: bool = False,
+    python_bw_threshold: int = 97,
+    r_custom_mark_thresholds: Optional[str] = None,
+    r_custom_mark_labels: Optional[str] = None,
+    r_omit_nops_marks: bool = False,
 ) -> bool:
     """
     Calls the R script to perform exam auto-correction.
@@ -186,9 +189,10 @@ def run_correction_script(
         processed_dir = split_and_rotate_scans(
             all_scans_pdf_path=os.path.abspath(all_scans_pdf),
             output_dir_for_processed_scans=r_nops_scan_input_dir, # Python populates R's expected dir
-            force_processing=force_split_python_control,
+            force_processing=force_split_operation,
             python_script_output_path=os.path.abspath(output_path), # For debug images subdir
             do_python_rotation=python_rotate_control,
+            python_bw_threshold=python_bw_threshold,
         )
         if not processed_dir:
             logging.error("Python PDF splitting and rotation failed. Aborting.")
@@ -197,7 +201,7 @@ def run_correction_script(
         # Tell R script NOT to split and NOT to rotate.
         # `--split-pages` for R is not added.
         # `--all-scans-pdf` for R is not added.
-        add_arg("--rotate-scans", False, is_flag=True) # Python handled rotation
+        add_arg("--rotate-scans", False, is_flag=True) # Python handled rotation (or explicitly didn't), so R should not.
     else:
         logging.info("Python is NOT handling PDF splitting/rotation. R script will manage based on its flags.")
         # R script will handle splitting if its --split-pages is set.
@@ -205,17 +209,12 @@ def run_correction_script(
         if all_scans_pdf: # If a combined PDF is provided for R to potentially split
             add_arg("--all-scans-pdf", os.path.abspath(all_scans_pdf))
             # We need to tell R to split this. The R script's --split-pages flag does this.
-            # This implies the Python script should have a way to pass this intent.
-            # Let's assume if split_pages_python_control is FALSE, AND all_scans_pdf is given,
-            # R should try to split it. This requires the R script's --split-pages flag to be set.
-            # The current R script's --split-pages flag is a boolean action.
-            # Let's make the `force_split_python_control` also control R's `--force-split` in this case.
             add_arg("--split-pages", True, is_flag=True) # Tell R to use its splitting mechanism
-            if force_split_python_control: # If forcing, applies to R's split too
+            if force_split_operation: # If forcing, applies to R's split too
                 add_arg("--force-split", True, is_flag=True)
         
-        # Pass the original rotate_scans_r_control to R
-        add_arg("--rotate-scans", rotate_scans_r_control, is_flag=True)
+        # R script rotation is always instructed to be False by this wrapper now.
+        add_arg("--rotate-scans", False, is_flag=True)
 
 
     # --- Common R Script Arguments ---
@@ -237,7 +236,7 @@ def run_correction_script(
     add_arg("--negative-points", negative_points)
     add_arg("--max-score", max_score)
     add_arg("--scale-mark-to", scale_mark_to)
-    add_arg("--force-nops-scan", force_nops_scan, is_flag=True)
+    add_arg("--force-nops-scan", force_nops_scan_r_script, is_flag=True)
 
     if student_csv_cols:
         add_arg("--student-csv-id-col", student_csv_cols.get("id"))
@@ -247,6 +246,11 @@ def run_correction_script(
 
     add_arg("--student-csv-encoding", student_csv_encoding)
     add_arg("--registration-format", registration_format)
+
+    # Arguments for nops_eval mark customization
+    add_arg("--custom-mark-thresholds", r_custom_mark_thresholds)
+    add_arg("--custom-mark-labels", r_custom_mark_labels)
+    add_arg("--omit-nops-marks", r_omit_nops_marks, is_flag=True)
 
     shell_command_parts = []
     for part in command:
@@ -316,24 +320,18 @@ def main():
     parser.add_argument("--scale-mark-to", type=float, default=10.0, help="Target score for R script's mark scaling.")
 
     # --- PDF Processing Controls (Python vs R) ---
-    parser.add_argument("--split-pages", action=argparse.BooleanOptionalAction, default=False,
+    parser.add_argument("--python-split", action=argparse.BooleanOptionalAction, default=False,
                         dest="split_pages_python_control",
-                        help="Enable PDF splitting & rotation by this Python script.")
-    parser.add_argument("--force-split", action=argparse.BooleanOptionalAction, default=False,
-                        dest="force_split_python_control",
-                        help="Force overwrite for PDF splitting (Python or R based on --split-pages).")
-    parser.add_argument("--python-rotate", action=argparse.BooleanOptionalAction, default=True, # Default True now for --split-pages
+                        help="Enable PDF splitting by this Python script. If enabled, Python also manages rotation based on --python-rotate.")
+    parser.add_argument("--python-rotate", action=argparse.BooleanOptionalAction, default=False, 
                         dest="python_rotate_control",
-                        help="Enable actual rotation by Python if --split-pages (Python) is active.")
-    parser.add_argument("--rotate-scans", action=argparse.BooleanOptionalAction, default=False,
-                        dest="rotate_scans_r_control",
-                        help="Enable image rotation by R's nops_scan (if Python's --split-pages is off).")
+                        help="Enable actual rotation by Python if --python-split is active. Independent of --python-split default.")
+    parser.add_argument("--python-bw-threshold", type=int, default=97,
+                        help="Grayscale to B&W threshold for Python fiducial cross detection (0-255). Default is 97.")
 
     # --- Execution Flow Control ---
-    parser.add_argument("--force-r-eval", action="store_true", default=False,
-                        help="Force R script evaluation even if results CSV exists.")
-    parser.add_argument("--force-nops-scan", action=argparse.BooleanOptionalAction, default=False,
-                        help="Force R's nops_scan to re-run.")
+    parser.add_argument("--force-overwrite", action="store_true", default=False,
+                        help="Force overwrite of existing outputs and re-run all major processing steps (R eval, nops_scan, splitting, PNGs).")
     
     # --- Consistency Check Control ---
     parser.add_argument("--run-consistency-check-on-fail", action=argparse.BooleanOptionalAction, default=True,
@@ -353,13 +351,17 @@ def main():
     parser.add_argument("--student-csv-encoding", type=str, default="UTF-8")
     parser.add_argument("--registration-format", type=str, default="%08s")
 
-    # --- PNG Generation Control ---
-    parser.add_argument("--force-png-generation", action="store_true", default=False,
-                        help="Force regeneration of PNGs from student HTML reports even if they already exist.")
-    
     # --- Log Level Control ---
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="Set the log level. Default is INFO.")
+
+    # --- R Script nops_eval Mark Customization ---
+    parser.add_argument("--r-custom-mark-thresholds", type=str, default=None,
+                        help="Pass-through to R script's --custom-mark-thresholds. E.g., '0.1,0.2,0.9'. Overrides default Spanish grading if set with labels.")
+    parser.add_argument("--r-custom-mark-labels", type=str, default=None,
+                        help="Pass-through to R script's --custom-mark-labels. E.g., 'Fail,Pass,Excellent'. Required if --r-custom-mark-thresholds is set.")
+    parser.add_argument("--r-omit-nops-marks", action=argparse.BooleanOptionalAction, default=False,
+                        help="Pass-through to R script's --omit-nops-marks. If set, nops_eval will not calculate categorical marks.")
 
     # --- Question Voiding Arguments (passed to analyze_results) ---
     parser.add_argument("--void-questions", type=str, default=None,
@@ -402,12 +404,17 @@ def main():
     processed_register_path = os.path.join(output_path_abs, "processed_student_register.csv")
     scanned_pages_dir = os.path.join(output_path_abs, "scanned_pages")
 
+    # Determine internal force flags based on the new --force-overwrite
+    current_force_r_eval = args.force_overwrite
+    current_force_nops_scan_r_script = args.force_overwrite # For R's nops_scan
+    current_force_split_operation = args.force_overwrite # For Python or R splitting
+    current_force_png_generation = args.force_overwrite # For PNGs
 
     r_script_was_run = False
     r_script_successfully_completed = False
 
-    if args.force_r_eval or not os.path.exists(results_csv_path):
-        logging.info(f"Preparing to run R correction script. Force run: {args.force_r_eval}. Results exist: {os.path.exists(results_csv_path)}")
+    if current_force_r_eval or not os.path.exists(results_csv_path):
+        logging.info(f"Preparing to run R correction script. Force run: {current_force_r_eval}. Results exist: {os.path.exists(results_csv_path)}")
         r_script_was_run = True
         try:
             r_script_successfully_completed = run_correction_script(
@@ -417,19 +424,22 @@ def main():
                 partial_eval=args.partial_eval, negative_points=args.negative_points,
                 max_score=args.max_score, scale_mark_to=args.scale_mark_to,
                 split_pages_python_control=args.split_pages_python_control,
-                force_split_python_control=args.force_split_python_control,
+                force_split_operation=current_force_split_operation,
                 r_executable=args.r_executable, student_csv_cols=student_csv_cols_dict,
                 student_csv_encoding=args.student_csv_encoding,
                 registration_format=args.registration_format,
-                force_nops_scan=args.force_nops_scan,
-                rotate_scans_r_control=args.rotate_scans_r_control,
+                force_nops_scan_r_script=current_force_nops_scan_r_script,
                 python_rotate_control=args.python_rotate_control,
+                python_bw_threshold=args.python_bw_threshold,
+                r_custom_mark_thresholds=args.r_custom_mark_thresholds,
+                r_custom_mark_labels=args.r_custom_mark_labels,
+                r_omit_nops_marks=args.r_omit_nops_marks
             )
         except Exception as e_r_script: # Catch any exception from run_correction_script itself
             logging.error(f"Exception during R script execution: {e_r_script}", exc_info=True)
             r_script_successfully_completed = False
     else:
-        logging.info(f"R script evaluation skipped as results file '{results_csv_path}' already exists. Use --force-r-eval to re-run.")
+        logging.info(f"R script evaluation skipped as results file '{results_csv_path}' already exists. Use --force-overwrite to re-run.")
         # If results exist and R script is skipped, we treat it as a "success" for analysis purposes.
         r_script_successfully_completed = True 
 
@@ -471,8 +481,8 @@ def main():
                 # processed_register_path might not exist if R failed early, so it's optional for the call
                 check_student_data_consistency(
                     pln_path=args.student_info_csv,
-                    daten_txt_path=daten_txt_temp_path,
-                    processed_register_path=processed_register_path if os.path.exists(processed_register_path) else None,
+                    daten_path=daten_txt_temp_path,
+                    processed_path=processed_register_path if os.path.exists(processed_register_path) else None,
                     output_path_for_debug=output_path_abs
                 )
             else:
@@ -516,7 +526,7 @@ def main():
         if POSTPROCESSOR_PLAYWRIGHT_AVAILABLE:
             logging.info("Attempting to generate PNGs from student HTML reports (if exam_corrected_results.zip was produced).")
             try:
-                process_exam_results_zip(output_path_abs, force_regeneration=args.force_png_generation) # Pass the force flag
+                process_exam_results_zip(output_path_abs, force_regeneration=current_force_png_generation) # Pass the force flag
             except Exception as e_postproc:
                 logging.error(f"An error occurred during student report PNG generation: {e_postproc}", exc_info=True)
         else:
@@ -540,10 +550,10 @@ def main():
     elif os.path.exists(results_csv_path) and args.run_analysis : # R script not run, results existed, analysis was run
          logging.info("Exam correction process: R script skipped (results existed), analysis performed.")
          sys.exit(0)
-    elif os.path.exists(results_csv_path) and not args.run_analysis : # R script not run, results didn't exist (shouldn't happen with current logic unless --force-r-eval was false and file vanished)
+    elif os.path.exists(results_csv_path) and not args.run_analysis : # R script not run, results didn't exist (shouldn't happen with current logic unless --force-overwrite was false and file vanished)
          logging.info("Exam correction process: R script skipped (results existed), analysis was disabled by user.")
          sys.exit(0)
-    else: # R script not run, and results didn't exist (shouldn't happen with current logic unless --force-r-eval was false and file vanished)
+    else: # R script not run, and results didn't exist (shouldn't happen with current logic unless --force-overwrite was false and file vanished)
         logging.error("Exam correction process: R script was not run and no pre-existing results found. This state should generally not be reached.")
         sys.exit(1)
 

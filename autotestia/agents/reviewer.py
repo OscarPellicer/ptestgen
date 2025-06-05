@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from ..schemas import Question
 from .. import config
 import logging
+from .base_llm_agent import BaseLLMAgent
 
 # Import SDKs selectively if needed, or rely on generator having initialized them
 # Assuming pipeline passes the client if needed, or re-initialize here.
@@ -14,7 +15,7 @@ import logging
 # from anthropic import Anthropic, APIError as AnthropicAPIError, APITimeoutError as AnthropicAPITimeoutError
 # import replicate
 
-class QuestionReviewer:
+class QuestionReviewer(BaseLLMAgent):
     """Agent responsible for reviewing and potentially improving questions."""
 
     def __init__(self,
@@ -24,131 +25,23 @@ class QuestionReviewer:
                  model_name: str = config.REVIEWER_MODEL,
                  api_keys: Dict[str, str] = None):
 
+        super().__init__(llm_provider, model_name, api_keys)
+
         self.criteria = criteria
-        self.use_llm = use_llm
-        self.llm_provider = llm_provider
-        self.model_name = model_name
-        self.client = None
-        self.api_keys = api_keys or {
-            "openai": config.OPENAI_API_KEY,
-            "google": config.GOOGLE_API_KEY,
-            "anthropic": config.ANTHROPIC_API_KEY,
-            "replicate": config.REPLICATE_API_TOKEN,
-        }
-        self.api_error_types = ()
-        self.timeout_error_types = ()
+        if self.llm_provider == "stub":
+            self.use_llm = False # Force disable if provider is stub, overriding user input for use_llm
+        else:
+            self.use_llm = use_llm and self.client is not None # Only use LLM if requested AND client is available
 
         logging.info(f"Initializing QuestionReviewer (LLM Review Enabled: {self.use_llm})")
-        if self.use_llm:
+        if self.use_llm: # This implies self.client is not None and self.llm_provider != "stub"
             logging.info(f"  Reviewer Provider: {self.llm_provider}, Model: {self.model_name}")
-            try:
-                # Conditional Imports and Client Initialization
-                if self.llm_provider == "openai":
-                    if not self.api_keys.get("openai"): raise ValueError("OpenAI API key missing.")
-                    from openai import OpenAI, APIError, APITimeoutError
-                    self.client = OpenAI(api_key=self.api_keys["openai"], timeout=config.LLM_TIMEOUT)
-                    self.api_error_types = (APIError,)
-                    self.timeout_error_types = (APITimeoutError,)
-                elif self.llm_provider == "google":
-                    if not self.api_keys.get("google"): raise ValueError("Google API key missing.")
-                    import google.generativeai as genai
-                    from google.api_core.exceptions import GoogleAPIError
-                    genai.configure(api_key=self.api_keys["google"])
-                    self.client = genai
-                    self.api_error_types = (GoogleAPIError,)
-                    self.timeout_error_types = ()
-                elif self.llm_provider == "anthropic":
-                    if not self.api_keys.get("anthropic"): raise ValueError("Anthropic API key missing.")
-                    from anthropic import Anthropic, APIError as AnthropicAPIError, APITimeoutError as AnthropicAPITimeoutError
-                    self.client = Anthropic(api_key=self.api_keys["anthropic"], timeout=config.LLM_TIMEOUT)
-                    self.api_error_types = (AnthropicAPIError,)
-                    self.timeout_error_types = (AnthropicAPITimeoutError,)
-                elif self.llm_provider == "replicate":
-                    if not self.api_keys.get("replicate"): raise ValueError("Replicate API token missing.")
-                    import replicate
-                    from replicate.exceptions import ReplicateError
-                    self.replicate_token = self.api_keys["replicate"]
-                    self.client = replicate
-                    self.api_error_types = (ReplicateError,)
-                    self.timeout_error_types = ()
-                elif self.llm_provider == "stub":
-                    logging.info("  LLM Review set to STUB mode.")
-                    self.use_llm = False # Force disable LLM if provider is stub
-                else:
-                    raise ValueError(f"Unsupported LLM provider for review: {self.llm_provider}")
-
-            except ImportError as e:
-                logging.error(f"Failed to import required library for reviewer provider '{self.llm_provider}': {e}. Disabling LLM review.")
-                self.client = None
-                self.use_llm = False
-            except Exception as e:
-                logging.error(f"Error initializing LLM client for Reviewer ({self.llm_provider}): {e}. Disabling LLM review.", exc_info=True)
-                self.client = None
-                self.use_llm = False
-
-    # Re-use helper methods from Generator (or move to a shared utils module)
-    def _call_llm_with_retry(self, api_call_func, *args, **kwargs):
-        """Wrapper to handle retries for API calls."""
-        for attempt in range(config.LLM_MAX_RETRIES + 1):
-            try:
-                return api_call_func(*args, **kwargs)
-            except self.timeout_error_types as e:
-                if attempt == config.LLM_MAX_RETRIES:
-                    logging.error(f"API Timeout Error after {attempt + 1} attempts: {e}")
-                    raise
-                logging.warning(f"API Timeout Error, retrying ({attempt + 1}/{config.LLM_MAX_RETRIES})...")
-                time.sleep(2 ** attempt)
-            except (self.api_error_types, Exception) as e:
-                 is_known_api_error = any(isinstance(e, err_type) for err_type in self.api_error_types)
-                 if attempt == config.LLM_MAX_RETRIES:
-                     error_type = "API Error" if is_known_api_error else "Unexpected Error"
-                     logging.error(f"{error_type} after {attempt + 1} attempts: {e}", exc_info=(not is_known_api_error))
-                     raise
-                 log_func = logging.warning if is_known_api_error else logging.info
-                 log_func(f"API Error: {e}. Retrying ({attempt + 1}/{config.LLM_MAX_RETRIES})...")
-                 time.sleep(2 ** attempt)
-        return None
-
-    def _parse_llm_response(self, response_content: str, expected_type='dict') -> Any:
-        """Attempts to parse the LLM's JSON response."""
-        try:
-            # Handle potential wrapping ```json ... ``` or ``` ... ```
-            response_content = response_content.strip()
-            if response_content.startswith("```json"):
-                response_content = response_content[len("```json"):].strip()
-            elif response_content.startswith("```"):
-                 response_content = response_content[len("```"):].strip()
-            if response_content.endswith("```"):
-                 response_content = response_content[:-len("```")].strip()
-
-            if response_content.startswith("json"):
-                 response_content = response_content[len("json"):].strip()
-
-            data = json.loads(response_content)
-
-            # Basic type check
-            if expected_type == 'dict' and not isinstance(data, dict):
-                 raise ValueError("Expected a JSON object (dict).")
-            # Add other type checks if needed (e.g., check keys for reviewer response)
-            if expected_type == 'dict' and not all(k in data for k in ["difficulty_score", "quality_score", "reviewed_question"]):
-                logging.warning(f"Reviewer response missing some expected keys: {data.keys()}")
-                # Allow partial success if some keys exist? For now, treat as invalid.
-                # raise ValueError("Reviewer JSON response missing expected keys.")
-
-
-            return data
-        except json.JSONDecodeError as e:
-            logging.error(f"Reviewer: Could not decode JSON response: {e}")
-            logging.error(f"Reviewer Raw response content was:\n---\n{response_content}\n---")
-            return None
-        except ValueError as e:
-             logging.error(f"Reviewer: Invalid response structure: {e}")
-             logging.error(f"Reviewer Raw response content was:\n---\n{response_content}\n---")
-             return None
-        except Exception as e:
-             logging.error(f"Reviewer: Unexpected error parsing response: {e}", exc_info=True)
-             logging.error(f"Reviewer Raw response content was:\n---\n{response_content}\n---")
-             return None
+        elif self.llm_provider == "stub":
+            logging.info("  LLM Review STUB mode (client not initialized by base class).")
+        elif not use_llm: # Explicitly set to False by user
+            logging.info("  LLM Review explicitly disabled by configuration.")
+        elif not self.client : # Client init failed in base class
+            logging.info("  LLM Review disabled due to client initialization failure.")
 
     def review_questions(self, questions: List[Question], custom_instructions: Optional[str] = None) -> List[Question]:
         """
@@ -169,7 +62,7 @@ class QuestionReviewer:
             q_reviewed = q_orig # Start with original
 
             # Then apply LLM review if enabled and client is ready
-            if self.use_llm and self.client:
+            if self.use_llm:
                 # Pass custom instructions to the LLM review method
                 q_reviewed = self._apply_llm_review(q_reviewed, custom_instructions)
 
@@ -280,8 +173,8 @@ class QuestionReviewer:
                  logging.error(f"No review content received from LLM for question {question.id}.")
                  return question
 
-            # Expect a dict with specific keys
-            parsed_review = self._parse_llm_response(response_content, expected_type='dict')
+            # Expect a dict with specific keys. Use base class method.
+            parsed_review = self._parse_llm_json_response(response_content, expected_structure='review_dict')
 
             if parsed_review and isinstance(parsed_review, dict):
                 # Extract new fields

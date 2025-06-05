@@ -7,6 +7,7 @@ from typing import List, Optional, Any, Dict
 from ..schemas import Question
 from .. import config
 import logging # Use logging
+from .base_llm_agent import BaseLLMAgent # Added import
 
 # Helper function to encode images for APIs
 def encode_image_to_base64(image_path):
@@ -32,7 +33,7 @@ def get_image_mime_type(image_path):
     return "application/octet-stream" # Default fallback
 
 
-class QuestionGenerator:
+class QuestionGenerator(BaseLLMAgent): # Changed inheritance
     """Agent responsible for generating questions using various LLM providers."""
 
     def __init__(self,
@@ -40,139 +41,26 @@ class QuestionGenerator:
                  model_name: str = config.GENERATOR_MODEL,
                  api_keys: Dict[str, str] = None):
 
-        self.llm_provider = llm_provider
-        self.model_name = model_name
-        self.client = None
-        self.api_keys = api_keys or {
-            "openai": config.OPENAI_API_KEY,
-            "google": config.GOOGLE_API_KEY,
-            "anthropic": config.ANTHROPIC_API_KEY,
-            "replicate": config.REPLICATE_API_TOKEN,
-        }
-        self.api_error_types = () # Tuple to store relevant API error types
-        self.timeout_error_types = () # Tuple for timeout errors
+        super().__init__(llm_provider, model_name, api_keys) # Call to super
+        # self.llm_provider = llm_provider # Removed
+        # self.model_name = model_name # Removed
+        # self.client = None # Removed
+        # self.api_keys = api_keys or { # Removed
+        # "openai": config.OPENAI_API_KEY, # Removed
+        # "google": config.GOOGLE_API_KEY, # Removed
+        # "anthropic": config.ANTHROPIC_API_KEY, # Removed
+        # "replicate": config.REPLICATE_API_TOKEN, # Removed
+        # } # Removed
+        # self.api_error_types = () # Removed
+        # self.timeout_error_types = () # Removed
 
+        # Logging info moved here, after super().__init__()
         logging.info(f"Initializing QuestionGenerator with provider: {self.llm_provider}, model: {self.model_name}")
+        # If llm_provider was "stub", BaseLLMAgent handles the logging.
+        # If client initialization failed in BaseLLMAgent, it logs the error.
 
-        try:
-            if self.llm_provider == "openai":
-                if not self.api_keys.get("openai"): raise ValueError("OpenAI API key not found in config/env.")
-                # Conditional import
-                from openai import OpenAI, APIError, APITimeoutError
-                self.client = OpenAI(api_key=self.api_keys["openai"], timeout=config.LLM_TIMEOUT)
-                self.api_error_types = (APIError,)
-                self.timeout_error_types = (APITimeoutError,)
-            elif self.llm_provider == "google":
-                if not self.api_keys.get("google"): raise ValueError("Google API key not found in config/env.")
-                 # Conditional import
-                import google.generativeai as genai
-                from google.api_core.exceptions import GoogleAPIError
-                genai.configure(api_key=self.api_keys["google"])
-                self.client = genai # Store the module itself
-                self.api_error_types = (GoogleAPIError,)
-                self.timeout_error_types = () # No specific timeout error class identified easily
-            elif self.llm_provider == "anthropic":
-                if not self.api_keys.get("anthropic"): raise ValueError("Anthropic API key not found in config/env.")
-                 # Conditional import
-                from anthropic import Anthropic, APIError as AnthropicAPIError, APITimeoutError as AnthropicAPITimeoutError
-                self.client = Anthropic(api_key=self.api_keys["anthropic"], timeout=config.LLM_TIMEOUT)
-                self.api_error_types = (AnthropicAPIError,)
-                self.timeout_error_types = (AnthropicAPITimeoutError,)
-            elif self.llm_provider == "replicate":
-                if not self.api_keys.get("replicate"): raise ValueError("Replicate API token not found in config/env.")
-                # Conditional import
-                import replicate
-                from replicate.exceptions import ReplicateError
-                self.replicate_token = self.api_keys["replicate"]
-                self.client = replicate # Use the replicate module itself
-                self.api_error_types = (ReplicateError,) # Use generic if specific unknown
-                self.timeout_error_types = ()
-            elif self.llm_provider == "stub":
-                logging.info("Using STUB generator. No real API calls will be made.")
-            else:
-                raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
-        except ImportError as e:
-             logging.error(f"Failed to import required library for provider '{self.llm_provider}': {e}. Please install it.")
-             self.client = None
-        except Exception as e:
-            logging.error(f"Error initializing LLM client for {self.llm_provider}: {e}", exc_info=True)
-            self.client = None # Ensure client is None if init fails
-
-    def _call_llm_with_retry(self, api_call_func, *args, **kwargs):
-        """Wrapper to handle retries for API calls."""
-        for attempt in range(config.LLM_MAX_RETRIES + 1):
-            try:
-                return api_call_func(*args, **kwargs)
-            # Combine known timeout errors if they exist
-            except self.timeout_error_types as e:
-                if attempt == config.LLM_MAX_RETRIES:
-                    logging.error(f"API Timeout Error after {attempt + 1} attempts: {e}")
-                    raise
-                logging.warning(f"API Timeout Error, retrying ({attempt + 1}/{config.LLM_MAX_RETRIES})...")
-                time.sleep(2 ** attempt) # Exponential backoff
-            # Combine known API errors and general exceptions
-            except (*self.api_error_types, Exception) as e:
-                 # Check if it's actually one of the known API errors
-                 is_known_api_error = any(isinstance(e, err_type) for err_type in self.api_error_types)
-
-                 if attempt == config.LLM_MAX_RETRIES:
-                     error_type = "API Error" if is_known_api_error else "Unexpected Error"
-                     logging.error(f"{error_type} after {attempt + 1} attempts: {e}", exc_info=(not is_known_api_error)) # Log traceback for unexpected
-                     raise
-                 log_func = logging.warning if is_known_api_error else logging.info # Log unexpected errors less loudly during retries
-                 log_func(f"API Error: {e}. Retrying ({attempt + 1}/{config.LLM_MAX_RETRIES})...")
-                 time.sleep(2 ** attempt) # Exponential backoff
-        return None # Should not be reached if exceptions are raised correctly
-
-    def _parse_llm_response(self, response_content: str, expected_format='questions_list') -> Any:
-        """Attempts to parse the LLM's JSON response, handling different expected structures."""
-        try:
-            # Sometimes models wrap JSON in backticks or add prefixes
-            response_content = response_content.strip()
-            if response_content.startswith("```json"):
-                response_content = response_content[len("```json"):].strip()
-            elif response_content.startswith("```"):
-                 response_content = response_content[len("```"):].strip()
-            if response_content.endswith("```"):
-                 response_content = response_content[:-len("```")].strip()
-
-            # Check again if the prefix was just 'json' without backticks
-            if response_content.startswith("json"):
-                 response_content = response_content[len("json"):].strip()
-
-            data = json.loads(response_content)
-
-            # Validate structure based on expected format
-            if expected_format == 'questions_list':
-                if not isinstance(data, dict) or "questions" not in data:
-                    raise ValueError("Expected JSON object with a 'questions' key containing a list.")
-                questions_list = data["questions"]
-                if not isinstance(questions_list, list):
-                    raise ValueError("Expected 'questions' key to contain a list.")
-                for q in questions_list:
-                    if not isinstance(q, dict) or not all(k in q for k in ["text", "correct_answer", "distractors"]):
-                         raise ValueError(f"List item is not a valid question object (missing keys): {q}")
-                return questions_list # Return the list of questions directly
-            elif expected_format == 'single_question':
-                 if not isinstance(data, dict) or not all(k in data for k in ["text", "correct_answer", "distractors"]):
-                     raise ValueError("Expected JSON object with keys 'text', 'correct_answer', 'distractors'.")
-                 return data # Return the single question dict
-            else:
-                raise ValueError(f"Unknown expected_format: {expected_format}")
-
-        except json.JSONDecodeError as e:
-            logging.error(f"Could not decode JSON response: {e}")
-            logging.error(f"Raw response content was:\n---\n{response_content}\n---")
-            return None
-        except ValueError as e:
-             logging.error(f"Invalid response structure for format '{expected_format}': {e}")
-             logging.error(f"Raw response content was:\n---\n{response_content}\n---")
-             return None
-        except Exception as e:
-             logging.error(f"Unexpected error parsing response: {e}", exc_info=True)
-             logging.error(f"Raw response content was:\n---\n{response_content}\n---")
-             return None
-
+        # Removed entire client initialization block (try...except for OpenAI, Google, etc.)
+        # This is now handled by BaseLLMAgent._initialize_client()
 
     def generate_questions_from_text(self,
                                      text_content: Optional[str], # Make optional
@@ -259,7 +147,7 @@ class QuestionGenerator:
                  return []
 
             # Expect a list of question dicts from the parser now
-            parsed_data = self._parse_llm_response(response_content, expected_format='questions_list')
+            parsed_data = self._parse_llm_json_response(response_content, expected_structure='questions_list')
 
             if parsed_data:
                  question_id_counter = 1
@@ -294,28 +182,46 @@ class QuestionGenerator:
                                      num_options: int = config.DEFAULT_NUM_OPTIONS,
                                      custom_instructions: Optional[str] = None) -> Optional[Question]:
         """Generates a single question from an image using the configured LLM."""
-        if self.llm_provider == "stub" or not self.client:
+        if not self.client and self.llm_provider != "stub": # Check if client was initialized in base
+            logging.warning(f"QuestionGenerator: LLM client not available for provider {self.llm_provider}. Cannot generate image question.")
+            # Generate stub if client is not available for a non-stub provider
+            return self._generate_stub_questions(1, num_options, f"Image: {image_path} (LLM client unavailable)")[0]
+        
+        if self.llm_provider == "stub": # Explicit stub check for clarity
             return self._generate_stub_questions(1, num_options, f"Image: {image_path}")[0]
+
 
         logging.info(f"Generating question from image {image_path} using {self.llm_provider} ({self.model_name})...")
 
         # Vision capabilities check (simple)
+        # Updated to use self.model_name which is set in BaseLLMAgent
         vision_models = {
-            "openai": ["gpt-4o", "gpt-4-vision-preview", "gpt-4-turbo"], # Add other vision models
-            "google": ["gemini-1.5-pro", "gemini-pro-vision", "gemini-1.5-pro-latest", "gemini-2.5-pro"],
-            "anthropic": ["claude-3", "claude-3-7-sonnet"], # Check exact names
-            "replicate": [] # Replicate vision models often have specific names like 'llava', check model details
+            "openai": ["gpt-4o", "gpt-4-turbo"], 
+            "google": ["gemini-2.5-pro", "gemini-pro-vision", "gemini-2.5-pro-latest"], # Removed gemini-2.5-pro as it was not in config
+            "anthropic": ["claude-3.7", "claude-3.7-opus", "claude-3.7-sonnet", "claude-3.7-haiku"], # More specific names
+            "replicate": [] 
         }
-        # A basic check, might need refinement based on exact model strings
-        is_vision_model = any(vm in self.model_name for vm in vision_models.get(self.llm_provider, []))
-        # Replicate needs explicit check as model names vary wildly
+        
+        is_vision_model = False
+        if self.llm_provider in vision_models:
+            is_vision_model = any(vm_keyword in self.model_name for vm_keyword in vision_models[self.llm_provider])
+
         if self.llm_provider == 'replicate':
-            # Placeholder - check Replicate docs for LLaVA or other vision models
-            print("Warning: Replicate vision model check not implemented. Assuming model supports vision if provider is replicate.")
-            is_vision_model = True # Assume yes for now
+             # For Replicate, model names are URLs/paths, e.g., "yorickvp/llava-13b:2facb4a474a0462c15041b78b1ad70952ea46b5ec6ad29583c0b29dbd4249591"
+             # A simple check might be if 'llava' or 'vision' is in the model string, but this is highly dependent on chosen model.
+             # The config has "unsloth/meta-llama-3.3-70b-instruct" which is not a vision model.
+             # This check needs to be robust or rely on user configuring a vision model for Replicate.
+             # For now, if it's replicate, and not explicitly a non-vision model, we might assume it could be, or log a warning.
+             # Let's assume it is NOT a vision model by default unless specified.
+             # logging.warning("Replicate vision model check is basic. Ensure the configured model supports vision.")
+             # is_vision_model = True # Cautious assumption, or make it False and require specific model names
+             if 'llava' in self.model_name or 'vision' in self.model_name: # Example check
+                 is_vision_model = True
+             else:
+                 is_vision_model = False # Default to false if no clear indicator for Replicate
 
         if not is_vision_model:
-             logging.warning(f"Model '{self.model_name}' for provider '{self.llm_provider}' might not support vision. Skipping image question.")
+             logging.warning(f"Model '{self.model_name}' for provider '{self.llm_provider}' may not support vision. Generation from image might fail or produce poor results. Skipping image question.")
              return None
 
 
@@ -400,10 +306,10 @@ class QuestionGenerator:
                 return None
 
             # Expect a single question dict from the parser
-            parsed_data = self._parse_llm_response(response_content, expected_format='single_question')
+            parsed_data = self._parse_llm_json_response(response_content, expected_structure='single_question_dict')
 
             if parsed_data:
-                 # Validation now done in parser
+                 # Validation now done in parser (base class)
                  if isinstance(parsed_data.get("distractors"), list) and len(parsed_data["distractors"]) == num_distractors:
                     q = Question(
                         id=999, # Placeholder ID
