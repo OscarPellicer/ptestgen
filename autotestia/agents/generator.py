@@ -127,7 +127,7 @@ class QuestionGenerator(BaseLLMAgent): # Changed inheritance
                  message = self._call_llm_with_retry(
                      self.client.messages.create,
                      model=self.model_name,
-                     max_tokens=4000,
+                     max_tokens=5000,
                      system=system_prompt, # Use system parameter
                      messages=[{"role": "user", "content": user_prompt}]
                  )
@@ -257,7 +257,7 @@ class QuestionGenerator(BaseLLMAgent): # Changed inheritance
                             {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}}
                         ]}
                     ],
-                    max_tokens=1000
+                    max_tokens=5000
                 )
                 response_content = completion.choices[0].message.content
             elif self.llm_provider == "google":
@@ -274,7 +274,7 @@ class QuestionGenerator(BaseLLMAgent): # Changed inheritance
                  message = self._call_llm_with_retry(
                      self.client.messages.create,
                      model=self.model_name,
-                     max_tokens=4000,
+                     max_tokens=5000,
                      system=system_prompt, # Pass system prompt
                      messages=[{
                          "role": "user",

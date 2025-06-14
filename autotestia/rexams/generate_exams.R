@@ -146,13 +146,13 @@ generate_exam_set <- function() {
     logo = actual_logo_path, # Use the resolved logo path
     replacement = FALSE,
     reglength = 8,
-    blank = 0,
     duplex = TRUE,
     samepage = TRUE,
     twocolumn = FALSE,
     fonts = NULL,
     header = exam_header,
-    encoding = "UTF-8"
+    encoding = "UTF-8",
+    blank = 1,
   )
   
   sampled_questions_list_file <- file.path(output_dir_path, "sampled_questions.txt")
