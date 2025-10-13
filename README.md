@@ -9,11 +9,11 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
 ## Core Features
 
 *   **LLM Integration:** Supports multiple providers:
-    *   OpenAI (e.g., GPT-4o)
-    *   Google (e.g., Gemini 2.5)
-    *   Anthropic (e.g., Claude 3.7 Sonnet, Claude 3.7 Haiku)
-    *   Replicate (e.g., Llama 3.2)
     *   **OpenRouter (Recommended):** Access a wide variety of models from different providers with a single API key. Simplifies configuration and allows for easy model switching.
+    *   OpenAI (e.g., GPT-4o, GPT-5)
+    *   Google (e.g., Gemini 2.5 Pro, Gemini 2.5 Flash)
+    *   Anthropic (e.g., Claude 4.5 Sonnet, Claude 4.5 Haiku)
+    *   Replicate (e.g., Llama 3.2)
 *   **Flexible Input:**
     *   **Document-Based Generation (OE1):** Generate questions from text documents (**TXT, MD, PDF, DOCX, PPTX, RTF supported for text extraction**) and images (PNG, JPG, GIF, BMP). PDF/DOCX/PPTX parsing requires installing optional dependencies. Image extraction *from within documents* is experimental.
     *   **Instruction-Based Generation:** Generate questions based on specific instructions provided via the command line, without requiring an input document.
@@ -86,9 +86,9 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
 
 **Note on parsing `.pptx` files (untested, WIP)**
 
-Unfortunately, the `python-pptx` library in charge of parsing `.pptx` files does not correctly parse MathML equations. This has been solved in my repo: https://github.com/OscarPellicer/python-pptx.
+Unfortunately, the `python-pptx` library in charge of parsing `.pptx` files does not correctly parse MathML equations. This has been solved in my fork of the library: https://github.com/OscarPellicer/python-pptx.
 
-To use it, you need to install my fork of the library AFTER installing everything else:
+To use it, you need to install this version AFTER installing everything else:
 
 ```bash
 pip install git+https://github.com/OscarPellicer/python-pptx.git
