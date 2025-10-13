@@ -6,6 +6,7 @@ from ..schemas import Question
 from .. import config
 import logging
 from .base_llm_agent import BaseLLMAgent
+from tqdm import tqdm
 
 # Import SDKs selectively if needed, or rely on generator having initialized them
 # Assuming pipeline passes the client if needed, or re-initialize here.
@@ -56,7 +57,7 @@ class QuestionReviewer(BaseLLMAgent):
         """
         logging.info(f"Reviewing {len(questions)} questions...")
         reviewed_questions = []
-        for q_orig in questions:
+        for q_orig in tqdm(questions, desc="Reviewing Questions"):
             # Apply rule-based checks first (can be uncommented if needed)
             # q_reviewed = self._apply_review_rules(q_orig)
             q_reviewed = q_orig # Start with original
@@ -106,6 +107,12 @@ class QuestionReviewer(BaseLLMAgent):
 
     def _apply_llm_review(self, question: Question, custom_instructions: Optional[str] = None) -> Question:
         """Uses an LLM to review/score a question, incorporating custom instructions."""
+        if not self.client:
+            logging.error(f"LLM client for {self.llm_provider} not available. Skipping LLM review for question {question.id}.")
+            question.review_comments.append(f"LLM Review Skipped: Client not initialized.")
+            return question
+
+        self._check_structured_output_support()
         logging.info(f"  LLM Reviewing Question {question.id} using {self.llm_provider} ({self.model_name})...")
 
         # Prepare input question JSON
@@ -130,17 +137,53 @@ class QuestionReviewer(BaseLLMAgent):
         try:
             response_content = None
             # --- Provider-specific calls ---
-            if self.llm_provider == "openai":
+            if self.llm_provider in ["openai", "openrouter"]:
+                params = {
+                    "model": self.model_name,
+                    "messages": [{"role": "system", "content": system_prompt}]
+                }
+                if self.llm_provider == "openrouter":
+                    schema = {
+                        "type": "object",
+                        "properties": {
+                            "difficulty_score": {"type": "number", "description": "Score from 0.0 to 1.0"},
+                            "quality_score": {"type": "number", "description": "Score from 0.0 to 1.0"},
+                            "review_comments": {"type": "string", "description": "Comments on the review"},
+                            "reviewed_question": {
+                                "type": "object",
+                                "properties": {
+                                    "text": {"type": "string"},
+                                    "correct_answer": {"type": "string"},
+                                    "distractors": {"type": "array", "items": {"type": "string"}}
+                                },
+                                "required": ["text", "correct_answer", "distractors"]
+                            }
+                        },
+                        "required": ["difficulty_score", "quality_score"]
+                    }
+                    params["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "review_question",
+                            "strict": True,
+                            "schema": schema
+                        }
+                    }
+                else:  # openai
+                    params["response_format"] = {"type": "json_object"}
+
                 completion = self._call_llm_with_retry(
                     self.client.chat.completions.create,
-                    model=self.model_name,
-                    response_format={ "type": "json_object" },
-                    messages=[{"role": "system", "content": system_prompt}] # Send combined prompt as system message
+                    **params
                 )
                 response_content = completion.choices[0].message.content
             elif self.llm_provider == "google":
+                 from ..schemas import LLMReview
                  model = self.client.GenerativeModel(self.model_name)
-                 generation_config = self.client.types.GenerationConfig(response_mime_type="application/json")
+                 generation_config = self.client.types.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=LLMReview,
+                 )
                  # Google typically takes the whole prompt as one part
                  response = self._call_llm_with_retry(
                      model.generate_content, [system_prompt], generation_config=generation_config

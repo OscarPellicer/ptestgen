@@ -13,6 +13,7 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   Google (e.g., Gemini 2.5)
     *   Anthropic (e.g., Claude 3.7 Sonnet, Claude 3.7 Haiku)
     *   Replicate (e.g., Llama 3.2)
+    *   **OpenRouter (Recommended):** Access a wide variety of models from different providers with a single API key. Simplifies configuration and allows for easy model switching.
 *   **Flexible Input:**
     *   **Document-Based Generation (OE1):** Generate questions from text documents (**TXT, MD, PDF, DOCX, PPTX, RTF supported for text extraction**) and images (PNG, JPG, GIF, BMP). PDF/DOCX/PPTX parsing requires installing optional dependencies. Image extraction *from within documents* is experimental.
     *   **Instruction-Based Generation:** Generate questions based on specific instructions provided via the command line, without requiring an input document.
@@ -52,6 +53,7 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   Edit the `.env` file and add your API keys for the LLM providers you intend to use.
     ```dotenv
     # .env file contents example
+    OPENROUTER_API_KEY="sk-or-..." # Recommended, can handle most models with a single API key
     OPENAI_API_KEY="sk-..."
     GOOGLE_API_KEY="AIza..."
     ANTHROPIC_API_KEY="sk-ant-..."
@@ -81,6 +83,16 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
         *   `knitr`: Used by `autotestia/rexams/generate_exams.R` (for R/exams PDF generation) for processing R Markdown files.
         *   `qpdf`: Used by `autotestia/rexams/run_autocorrection.R` (for `autotestia_correct`) for splitting PDF files if R handles the splitting.
         *   The `autotestia_correct` command (and its underlying Python PDF processing option `--split-pages`) also has Python dependencies like `PyPDF2`, `pdf2image`, and `opencv-python` which are part of the main package install, but Poppler is an external dependency for `pdf2image`.
+
+**Note on parsing `.pptx` files (untested, WIP)**
+
+Unfortunately, the `python-pptx` library in charge of parsing `.pptx` files does not correctly parse MathML equations. This has been solved in my repo: https://github.com/OscarPellicer/python-pptx.
+
+To use it, you need to install my fork of the library AFTER installing everything else:
+
+```bash
+pip install git+https://github.com/OscarPellicer/python-pptx.git
+```
 
 ## Usage
 
@@ -112,42 +124,99 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
 
 #### Examples for `autotestia`
 
-1.  **Generate 5 questions using OpenAI from a text file, output to default paths, request Moodle XML and GIFT:**
+1.  **Generate questions from PowerPoint presentation with custom instructions:**
     ```bash
-    # Make sure OPENAI_API_KEY is in .env
-    autotestia path/to/your/notes.txt -n 5
+    # Make sure OPENROUTER_API_KEY is in .env
+    autotestia path/to/presentation.pptx \
+        -n 4 \
+        --provider openrouter \
+        --generator-model google/gemini-2.5-pro \
+        --reviewer-model google/gemini-2.5-pro \
+        --use-llm-review \
+        -f none \
+        -o generated/topic_questions.md \
+        --language Spanish \
+        --generator-instructions "Create questions about the specifics of LDA, LSA / LSI"
     ```
-    *   Creates `output/questions.md`. Press Enter after reviewing (unless `--skip-manual-review`).
-    *   Then creates `output/moodle_questions.xml` and `output/gift_questions.gift`.
+    *   Creates `generated/topic_questions.md` with 4 questions focused on specific topics.
+    *   Uses LLM review for quality assurance.
+    *   Create only the intermediate Markdown file: you will need to run the pipeline again to get the final output (see below)
 
-2.  **Generate 3 questions using Google Gemini, include an image, enable LLM review, skip manual review, output R/exams format:**
-    ```bash
-    # Make sure GOOGLE_API_KEY is in .env
-    autotestia course_material.txt -n 3 -i diagram.png --provider google --use-llm-review --skip-manual-review -f rexams -o generated/google_review.md
-    ```
-    *   Creates `generated/google_review.md`.
-    *   Immediately creates R/exams files in `generated/rexams/`.
-
-3.  **Generate 10 questions based *only* on instructions using Anthropic, shuffle questions and answers (fixed seed), select 5 final questions, output to GIFT:**
+2.  **Generate questions from Markdown file with custom instructions:**
     ```bash
     # Make sure ANTHROPIC_API_KEY is in .env
-    autotestia --generator-instructions "Generate multiple-choice questions about the main features of Python 3.12." -n 10 --provider anthropic --shuffle-questions 42 --shuffle-answers 42 --num-final-questions 5 -f gift -o output/python_features.md
+    autotestia path/to/course_notes.md \
+        -n 10 \
+        --provider anthropic \
+        --generator-model claude-sonnet-4-5 \
+        --reviewer-model claude-sonnet-4-5 \
+        --use-llm-review \
+        -f none \
+        --language Spanish \
+        -o generated/course_questions.md
     ```
-    *   Creates `output/python_features.md` (containing 10 questions).
-    *   Creates `output/python_features.gift` (containing 5 randomly selected, shuffled questions).
+    *   Creates `generated/course_questions.md` with 10 questions from course material.
+    *   Uses both generator and reviewer models for quality control.
 
-4.  **Generate only the intermediate Markdown file from a PDF, adding custom instructions:**
+3.  **Generate questions based only on instructions (no input file):**
     ```bash
-    autotestia study_guide.pdf -n 15 -f none -o draft_questions.md --generator-instructions "Focus on chapter 3."
+    # Make sure ANTHROPIC_API_KEY is in .env
+    autotestia \
+        -n 6 \
+        -o generated/python_regex_questions.md \
+        --provider anthropic \
+        --generator-instructions "Generate multiple-choice questions specifically about Python regular expressions using the 're' module. Focus on questions requiring either synthesis (writing a regex pattern based on a description) or analysis (determining what a given regex pattern matches or does). Cover common concepts like character classes, quantifiers, grouping, anchors, lookarounds, and standard 're' functions (e.g., search, match, findall, sub)." \
+        --use-llm-review \
+        --reviewer-instructions "Ensure questions accurately test Python regex synthesis or analysis as requested. Verify the correctness of regex patterns, expected matches, and explanations. Ensure distractors are plausible but incorrect applications or interpretations of regex concepts." \
+        --language Spanish \
+        -f none
     ```
-    *   Creates `draft_questions.md` and stops.
+    *   Creates `generated/python_regex_questions.md` with 6 Python regex questions.
+    *   Uses custom instructions for both generation and review.
+    *   Questions are generated in Spanish.
 
-5.  **Resume processing from a previously generated/edited Markdown file, shuffle questions (random seed), convert to GIFT:**
+4.  **Resume from Markdown file and convert to Wooclap format:**
     ```bash
-    autotestia --resume-from-md draft_questions.md -f gift --shuffle-questions
+    autotestia \
+        --resume-from-md generated/questions.md \
+        -f wooclap \
+        --shuffle-questions 123 \
+        --shuffle-answers 123
     ```
-    *   Parses `draft_questions.md`.
-    *   Creates `draft_questions.gift` in the same directory containing all questions from the MD file but in a shuffled order.
+    *   Parses existing `generated/questions.md` file.
+    *   Creates Wooclap-compatible output with shuffled questions and answers.
+    *   Uses fixed seed (123) for reproducible shuffling.
+
+5.  **Resume from Markdown file and convert to R/Exams format:**
+    ```bash
+    autotestia \
+        --resume-from-md generated/exam_questions.md \
+        -f rexams \
+        --rexams-title "Natural Language Processing - Final Exam" \
+        --rexams-course "Data Science Degree" \
+        --shuffle-answers 123 \
+        --log-level DEBUG \
+        --rexams-date "2025-06-05"
+    ```
+    *   Parses existing `generated/exam_questions.md` file.
+    *   Creates R/Exams format with custom title, course, and date.
+    *   Shuffles answers with fixed seed for consistency.
+
+6.  **Other example (would not use this in practice): generate questions with image input and R/exams output directly without reviewing:**
+    ```bash
+    # Make sure OPENROUTER_API_KEY is in .env
+    autotestia course_material.txt \
+        -n 3 \
+        -i diagram.png \
+        --provider openrouter \
+        --use-llm-review \
+        --skip-manual-review \
+        -f rexams \
+        -o generated/openrouter_review.md
+    ```
+    *   Uses an image input
+    *   Creates `generated/openrouter_review.md`.
+    *   Immediately creates R/exams files in `generated/rexams/`.
 
 #### Command Line Options for `autotestia`
 
@@ -163,7 +232,7 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   `-i`, `--images`: Optional path(s) to image file(s).
     *   `-n`, `--num-questions`: Number of questions to generate (default: 5).
     *   `-o`, `--output-md`: Path for the intermediate Markdown file (default: `output/questions.md`).
-    *   `--provider`: LLM provider (choices: `openai`, `google`, `anthropic`, `replicate`, `stub`, default: from `.env` or `stub`).
+    *   `--provider`: LLM provider (choices: `openai`, `google`, `anthropic`, `replicate`, `openrouter`, `stub`, default: from `.env` or `openrouter`).
     *   `--generator-model`: Override default generator model for the provider.
     *   `--reviewer-model`: Override default reviewer model for the provider.
     *   `--use-llm-review` / `--no-use-llm-review`: Enable/disable LLM-based review agent.
@@ -187,10 +256,27 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
 
 ### `autotestia_split`: Split a question file into multiple smaller files
 
-Split `all_questions.md` into three files: the first with 10 questions, the second with 25% of the total questions (shuffled), and the third with all remaining questions. Output files will be named `all_questions_1.md`, `all_questions_2.md`, etc., in the `output/custom_splits` directory.
+**Split questions into equal parts with shuffling:**
 ```bash
-autotestia_split all_questions.md --splits 10 0.25 -1 --output-dir output/custom_splits --shuffle-questions 123
+autotestia_split generated/all_questions.md \
+    --splits 0.5 0.5 \
+    --output-dir generated/splits \
+    --shuffle-questions 123
 ```
+*   Splits `generated/all_questions.md` into two equal parts (50% each).
+*   Output files will be named `all_questions_1.md`, `all_questions_2.md` in `generated/splits/`.
+*   Questions are shuffled with seed 123 before splitting.
+
+**Split with mixed proportions:**
+```bash
+autotestia_split all_questions.md \
+    --splits 10 0.25 -1 \
+    --output-dir output/custom_splits \
+    --shuffle-questions 123
+```
+*   First file: 10 questions
+*   Second file: 25% of remaining questions (shuffled)
+*   Third file: all remaining questions
 
 ### `autotestia_correct`: Correct R/exams NOPS Scans
 
@@ -200,8 +286,54 @@ This Python wrapper can also optionally handle PDF splitting and page rotation u
 
 By default, for the categorical marks generated by `nops_eval` (which appear in the HTML reports and a "mark" column in the CSV/RDS files), the R script uses a Spanish grading system with descriptive labels (e.g., "Suspenso Muy Deficiente", "Aprobado", "Matrícula de Honor") and percentage thresholds like `0.099, 0.199, ..., 0.949`. You can customize this or omit these marks entirely using specific command-line options.
 
-#### Example for `autotestia_correct`:
+#### Examples for `autotestia_correct`:
 
+**Correct exams from PDF scans with Python processing:**
+```bash
+# Ensure R and necessary R packages (exams, qpdf, optparse) are installed.
+autotestia_correct \
+    --all-scans-pdf generated/splits/exam_scans.pdf \
+    --student-info-csv generated/splits/student_register.csv \
+    --solutions-rds generated/splits/exam_output/exam.rds \
+    --output-path generated/splits/exam_corrected \
+    --language es \
+    --partial-eval \
+    --negative-points -0.333333 \
+    --scale-mark-to 10.0 \
+    --student-csv-id-col "Número ID" \
+    --student-csv-reg-col "DNI" \
+    --student-csv-name-col "Nom" \
+    --student-csv-surname-col "Cognoms" \
+    --student-csv-encoding UTF-8 \
+    --registration-format "%08s" \
+    --python-rotate \
+    --python-split \
+    --max-score 30 \
+    --log-level INFO \
+    --python-bw-threshold 170
+```
+*   Processes PDF scans with Python-based splitting and rotation.
+*   Uses Spanish language for evaluation.
+*   Applies partial scoring with -1/3 penalty for wrong answers.
+*   Scales final marks to 10.0 scale.
+*   Customizes CSV column mappings for student data.
+
+**Correct exams from manually corrected CSV:**
+```bash
+autotestia_correct \
+    --corrected-answers-csv generated/splits/manual_corrections.csv \
+    --solutions-rds generated/splits/exam_output/exam.rds \
+    --output-path generated/splits/manual_corrected \
+    --partial-eval \
+    --negative-points -0.333333 \
+    --max-score 30 \
+    --scale-mark-to 10.0
+```
+*   Uses pre-corrected answers from CSV file.
+*   Applies same scoring rules as above.
+*   Useful when manual correction is preferred over automated scanning.
+
+**Basic correction workflow:**
 ```bash
 # Ensure R and necessary R packages (exams, qpdf, optparse) are installed.
 autotestia_correct \
@@ -215,7 +347,7 @@ autotestia_correct \
     --scale-mark-to 10
 ```
 
-This command would (with `--split-pages` handled by Python by default):
+These commands would:
 1.  Split `all_scans_concatenated.pdf` into individual page PDFs (potentially also rotating them) within a subdirectory of `./correction_output/`.
 2.  The R script then scans these pages.
 3.  Process `student_data.csv` to match the format required by `nops_eval`.
@@ -274,6 +406,7 @@ This command would (with `--split-pages` handled by Python by default):
 *   Test robust parsing for PDF, DOCX in `input_parser/parser.py` (only PPTX and text formats have been tested so far)
 *   Test image extraction from documents
 *   Test passing custom images for questions
+*   Add structured output support (JSON). Right now I'm using JSON, but sometimes the parsing fails.
 *   Develop evaluation metrics and agent (OE6).
 *   Explore dynamic questions (OE7) and humorous distractors (OE8).
 *   Consider adding support for self-hosted models.

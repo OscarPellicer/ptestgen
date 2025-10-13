@@ -33,6 +33,7 @@ class AutoTestIAPipeline:
                  "google": config.GOOGLE_API_KEY,
                  "anthropic": config.ANTHROPIC_API_KEY,
                  "replicate": config.REPLICATE_API_TOKEN,
+                 "openrouter": config.OPENROUTER_API_KEY,
             }
             # Add other configurable parameters here
         }

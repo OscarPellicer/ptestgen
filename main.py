@@ -266,6 +266,9 @@ def main():
             if selected_provider == "openai" and not config.OPENAI_API_KEY:
                 print("Error: OpenAI provider selected, but OPENAI_API_KEY not found in .env or environment variables.", file=sys.stderr)
                 api_key_missing = True
+            elif selected_provider == "openrouter" and not config.OPENROUTER_API_KEY:
+                print("Error: OpenRouter provider selected, but OPENROUTER_API_KEY not found in .env or environment variables.", file=sys.stderr)
+                api_key_missing = True
             elif selected_provider == "google" and not config.GOOGLE_API_KEY:
                 print("Error: Google provider selected, but GOOGLE_API_KEY not found in .env or environment variables.", file=sys.stderr)
                 api_key_missing = True

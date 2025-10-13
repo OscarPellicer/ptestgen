@@ -8,13 +8,15 @@ load_dotenv()
 
 # --- LLM Configuration ---
 # Select the provider: "openai", "google", "anthropic", "replicate", "stub"
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "stub")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")
 
 # API Keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
 
 # --- Model Selection ---
 # Define models for each provider (using requested models or sensible defaults)
@@ -22,16 +24,18 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 GENERATOR_MODEL_MAP = {
     "openai": os.getenv("OPENAI_GENERATOR_MODEL", "gpt-4o"),
     "google": os.getenv("GOOGLE_GENERATOR_MODEL", "gemini-2.5-pro"),
-    "anthropic": os.getenv("ANTHROPIC_GENERATOR_MODEL", "claude-3-7-sonnet-latest"),
+    "anthropic": os.getenv("ANTHROPIC_GENERATOR_MODEL", "claude-sonnet-4-5"),
     "replicate": os.getenv("REPLICATE_GENERATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
+    "openrouter": os.getenv("OPENROUTER_GENERATOR_MODEL", "google/gemini-2.5-pro"),
     "stub": "stub-generator-model"
 }
 
 REVIEWER_MODEL_MAP = { # Potentially use a cheaper model for review
     "openai": os.getenv("OPENAI_REVIEWER_MODEL", "gpt-4o"),
     "google": os.getenv("GOOGLE_REVIEWER_MODEL", "gemini-2.5-pro"),
-    "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-3-7-sonnet-latest"), 
+    "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-sonnet-4-5"), 
     "replicate": os.getenv("REPLICATE_REVIEWER_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
+    "openrouter": os.getenv("OPENROUTER_REVIEWER_MODEL", "google/gemini-2.5-pro"),
     "stub": "stub-reviewer-model"
 }
 
@@ -109,6 +113,7 @@ Provide scores for difficulty (0.0 = extremely easy, 1.0 = extremely difficult) 
 Finally, if changes are needed, provide the corrected question (including the question text, the correct answer and the confounders) in the same JSON format as the input question, under the key "reviewed_question".
 
 Input Question (JSON format):
+
 {question_json}
 
 Output your review as a JSON object with keys: "difficulty_score" (float), "quality_score" (float), "reviewed_question" (optional: a JSON object with keys: "text", "correct_answer", "distractors"). OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
@@ -123,4 +128,18 @@ LLM_MAX_RETRIES = 2
 # Base delay for retries (in seconds), will be subject to exponential backoff
 RETRY_DELAY_BASE = 2 # Added for retry logic
 
-# Add other configurations as needed 
+# Add other configurations as needed
+
+# --- Model Capabilities ---
+# Keywords to identify models that support structured/JSON output modes we use.
+# This is a simple check; models not listed might still work.
+STRUCTURED_OUTPUT_SUPPORTED_MODELS = {
+    "openai": ["*"],
+    # For OpenRouter, support is widespread. We will assume any model the user
+    # selects on OpenRouter is chosen for this capability.
+    # See: https://openrouter.ai/models?fmt=cards&supported_parameters=structured_outputs
+    "openrouter": ["*"], # Using a wildcard to mean "all"
+    "google": ["*"], # Broader keywords
+    "anthropic": [], # Not implemented with native JSON mode
+    "replicate": [], # Not implemented with native JSON mode
+} 

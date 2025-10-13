@@ -6,6 +6,7 @@ replicate>=0.20.0 # Check for latest version
 
 # Environment variable management
 python-dotenv>=1.0.0
+pydantic>=2.0.0 # For Google structured output
 
 # Parsing Libraries
 pypdf>=4.0.0 # For PDF text extraction
@@ -23,3 +24,4 @@ numpy>=1.20.0
 unidecode>=1.0.0
 pdf2image>=1.16.0 # For PDF to image conversion
 opencv-python>=4.7.0 # For image processing (cv2)
+tqdm>=4.62.0 # For progress bars

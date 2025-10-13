@@ -2,6 +2,7 @@ import json
 import time
 import random
 import logging
+import sys
 from typing import Dict, Any, Tuple, Type, Callable, Optional
 
 from .. import config # Assuming this path is correct
@@ -10,16 +11,11 @@ class BaseLLMAgent:
     def __init__(self,
                  llm_provider: str,
                  model_name: str,
-                 api_keys: Optional[Dict[str, str]] = None):
+                 api_keys: Dict[str, str]):
         self.llm_provider = llm_provider
         self.model_name = model_name
         self.client: Any = None
-        self.api_keys = api_keys or {
-            "openai": config.OPENAI_API_KEY,
-            "google": config.GOOGLE_API_KEY,
-            "anthropic": config.ANTHROPIC_API_KEY,
-            "replicate": config.REPLICATE_API_TOKEN,
-        }
+        self.api_keys = api_keys
         self.api_error_types: Tuple[Type[Exception], ...] = ()
         self.timeout_error_types: Tuple[Type[Exception], ...] = ()
 
@@ -40,6 +36,20 @@ class BaseLLMAgent:
                 if not self.api_keys.get("openai"): raise ValueError("OpenAI API key missing.")
                 from openai import OpenAI, APIError, APITimeoutError
                 self.client = OpenAI(api_key=self.api_keys["openai"], timeout=config.LLM_TIMEOUT)
+                self.api_error_types = (APIError,)
+                self.timeout_error_types = (APITimeoutError,)
+            elif self.llm_provider == "openrouter":
+                if not self.api_keys.get("openrouter"): raise ValueError("OpenRouter API key missing.")
+                from openai import OpenAI, APIError, APITimeoutError
+                self.client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=self.api_keys["openrouter"],
+                    default_headers={
+                        "HTTP-Referer": "https://github.com/OscarPellicer/AutoTestIA",
+                        "X-Title": "AutoTestIA",
+                    },
+                    timeout=config.LLM_TIMEOUT
+                )
                 self.api_error_types = (APIError,)
                 self.timeout_error_types = (APITimeoutError,)
             elif self.llm_provider == "google":
@@ -75,12 +85,43 @@ class BaseLLMAgent:
         except ImportError as e:
             logging.error(f"BaseLLMAgent: Failed to import library for '{self.llm_provider}' in {self.__class__.__name__}: {e}. LLM features will be impaired.")
             self.client = None
+            raise RuntimeError(f"Failed to import required library for {self.llm_provider}: {e}") from e
         except ValueError as e: # Catch API key errors or unsupported provider
             logging.error(f"BaseLLMAgent: Configuration error for '{self.llm_provider}' in {self.__class__.__name__}: {e}. LLM features will be impaired.")
             self.client = None
+            raise RuntimeError(f"Configuration error for {self.llm_provider}: {e}") from e
         except Exception as e:
             logging.error(f"BaseLLMAgent: Error initializing LLM client for '{self.llm_provider}' in {self.__class__.__name__}: {e}. LLM features will be impaired.", exc_info=True)
             self.client = None
+            raise RuntimeError(f"An unexpected error occurred while initializing the LLM client for {self.llm_provider}: {e}") from e
+
+    def _check_structured_output_support(self):
+        """
+        Checks if the current model is known to support structured outputs.
+        Logs a warning if it might not be supported.
+        """
+        provider = self.llm_provider
+        model = self.model_name
+        
+        supported_models = config.STRUCTURED_OUTPUT_SUPPORTED_MODELS.get(provider)
+
+        if supported_models is None:
+            # Provider not in our list, assume no support for our implementation
+            logging.warning(f"Provider '{provider}' is not in the list of providers with known structured output support. JSON parsing may fail.")
+            return
+
+        if supported_models == ["*"]: # Wildcard for providers like OpenRouter
+            return
+
+        if not any(keyword in model for keyword in supported_models):
+            warning_msg = (
+                f"Model '{model}' for provider '{provider}' is not in the list of models known to support structured outputs. "
+                "Generation may fail or produce malformed JSON.\n"
+                "It is recommended to use a model known for reliable JSON output, for instance, by using the 'openrouter' provider.\n"
+                "You can find a list of compatible OpenRouter models here: https://openrouter.ai/models?fmt=cards&supported_parameters=structured_outputs"
+            )
+            logging.warning(warning_msg)
+            print(f"Warning: {warning_msg}", file=sys.stderr)
 
     def _call_llm_with_retry(self, api_call_func: Callable, *args: Any, **kwargs: Any) -> Any:
         """Wrapper to handle retries for API calls with exponential backoff and jitter."""

@@ -75,10 +75,14 @@ class QuestionGenerator(BaseLLMAgent): # Changed inheritance
             logging.warning("generate_questions_from_text called without text_content or custom_instructions. Cannot generate.")
             return []
 
-        if self.llm_provider == "stub" or not self.client:
+        if self.llm_provider == "stub":
             source_desc = "Provided Text" if text_content else "Provided Instructions"
             return self._generate_stub_questions(num_questions, num_options, source_desc)
+        
+        if not self.client:
+            raise RuntimeError(f"LLM client for provider '{self.llm_provider}' is not available. Check API keys and configuration.")
 
+        self._check_structured_output_support()
         logging.info(f"Generating {num_questions} questions from {'text' if text_content else 'instructions'} using {self.llm_provider} ({self.model_name})...")
         questions = []
         num_distractors = num_options - 1
@@ -103,20 +107,57 @@ class QuestionGenerator(BaseLLMAgent): # Changed inheritance
         try:
             response_content = None
             # --- Provider-specific calls ---
-            if self.llm_provider == "openai":
-                completion = self._call_llm_with_retry(
-                    self.client.chat.completions.create,
-                    model=self.model_name,
-                    response_format={ "type": "json_object" },
-                    messages=[
+            if self.llm_provider in ["openai", "openrouter"]:
+                params = {
+                    "model": self.model_name,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ]
+                }
+                if self.llm_provider == "openrouter":
+                    schema = {
+                        "type": "object",
+                        "properties": {
+                            "questions": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "text": {"type": "string"},
+                                        "correct_answer": {"type": "string"},
+                                        "distractors": {"type": "array", "items": {"type": "string"}},
+                                        "explanation": {"type": "string"}
+                                    },
+                                    "required": ["text", "correct_answer", "distractors"]
+                                }
+                            }
+                        },
+                        "required": ["questions"]
+                    }
+                    params["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "generate_questions",
+                            "strict": True,
+                            "schema": schema
+                        }
+                    }
+                else:  # openai
+                    params["response_format"] = {"type": "json_object"}
+
+                completion = self._call_llm_with_retry(
+                    self.client.chat.completions.create,
+                    **params
                 )
                 response_content = completion.choices[0].message.content
             elif self.llm_provider == "google":
+                from ..schemas import LLMQuestionList
                 model = self.client.GenerativeModel(self.model_name)
-                generation_config = self.client.types.GenerationConfig(response_mime_type="application/json")
+                generation_config = self.client.types.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=LLMQuestionList,
+                )
                 response = self._call_llm_with_retry(
                     model.generate_content,
                     [system_prompt, user_prompt], # Pass both prompts
@@ -182,14 +223,13 @@ class QuestionGenerator(BaseLLMAgent): # Changed inheritance
                                      num_options: int = config.DEFAULT_NUM_OPTIONS,
                                      custom_instructions: Optional[str] = None) -> Optional[Question]:
         """Generates a single question from an image using the configured LLM."""
-        if not self.client and self.llm_provider != "stub": # Check if client was initialized in base
-            logging.warning(f"QuestionGenerator: LLM client not available for provider {self.llm_provider}. Cannot generate image question.")
-            # Generate stub if client is not available for a non-stub provider
-            return self._generate_stub_questions(1, num_options, f"Image: {image_path} (LLM client unavailable)")[0]
-        
         if self.llm_provider == "stub": # Explicit stub check for clarity
             return self._generate_stub_questions(1, num_options, f"Image: {image_path}")[0]
 
+        if not self.client: # Check if client was initialized in base
+            raise RuntimeError(f"LLM client for provider '{self.llm_provider}' is not available. Check API keys and configuration.")
+
+        self._check_structured_output_support()
 
         logging.info(f"Generating question from image {image_path} using {self.llm_provider} ({self.model_name})...")
 
@@ -245,24 +285,52 @@ class QuestionGenerator(BaseLLMAgent): # Changed inheritance
 
         try:
             response_content = None
-            if self.llm_provider == "openai":
-                completion = self._call_llm_with_retry(
-                    self.client.chat.completions.create,
-                    model=self.model_name,
-                     response_format={ "type": "json_object" },
-                    messages=[
+            if self.llm_provider in ["openai", "openrouter"]:
+                params = {
+                    "model": self.model_name,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": [
                             {"type": "text", "text": user_prompt_text},
                             {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{base64_image}"}}
                         ]}
                     ],
-                    max_tokens=5000
+                    "max_tokens": 5000
+                }
+                if self.llm_provider == "openrouter":
+                    schema = {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string"},
+                            "correct_answer": {"type": "string"},
+                            "distractors": {"type": "array", "items": {"type": "string"}},
+                            "explanation": {"type": "string"}
+                        },
+                        "required": ["text", "correct_answer", "distractors"]
+                    }
+                    params["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "generate_single_question",
+                            "strict": True,
+                            "schema": schema
+                        }
+                    }
+                else:  # openai
+                    params["response_format"] = {"type": "json_object"}
+
+                completion = self._call_llm_with_retry(
+                    self.client.chat.completions.create,
+                    **params
                 )
                 response_content = completion.choices[0].message.content
             elif self.llm_provider == "google":
+                 from ..schemas import LLMQuestionItem
                  model = self.client.GenerativeModel(self.model_name)
-                 generation_config = self.client.types.GenerationConfig(response_mime_type="application/json")
+                 generation_config = self.client.types.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=LLMQuestionItem,
+                 )
                  image_part = {"mime_type": mime_type, "data": base64.b64decode(base64_image)}
                  response = self._call_llm_with_retry(
                      model.generate_content,
