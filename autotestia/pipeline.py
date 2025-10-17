@@ -10,6 +10,7 @@ from .schemas import Question
 from .input_parser import parser
 from .agents.generator import QuestionGenerator
 from .agents.reviewer import QuestionReviewer
+from .agents.evaluator import QuestionEvaluator
 from .output_formatter import markdown_writer, converters
 from .rexams import generate_exams as rexams_wrapper
 
@@ -27,6 +28,7 @@ class AutoTestIAPipeline:
             "llm_provider": config.LLM_PROVIDER,
             "generator_model": config.GENERATOR_MODEL,
             "reviewer_model": config.REVIEWER_MODEL,
+            "evaluator_model": config.EVALUATOR_MODEL,
             "use_llm_review": config.DEFAULT_LLM_REVIEW_ENABLED,
             "api_keys": { # Pass collected keys
                  "openai": config.OPENAI_API_KEY,
@@ -56,6 +58,11 @@ class AutoTestIAPipeline:
             api_keys=self.current_config["api_keys"]
             # criteria can also be made configurable
         )
+        self.evaluator = QuestionEvaluator(
+            llm_provider=self.current_config["llm_provider"],
+            model_name=self.current_config["evaluator_model"],
+            api_keys=self.current_config["api_keys"]
+        )
         logging.info(f"Pipeline initialized with use_llm_review={self.current_config['use_llm_review']}.")
 
     def run(self,
@@ -71,6 +78,10 @@ class AutoTestIAPipeline:
             use_llm_review: Optional[bool] = None,
             generator_instructions: Optional[str] = None,
             reviewer_instructions: Optional[str] = None,
+            evaluator_instructions: Optional[str] = None,
+            evaluate_initial: bool = False,
+            evaluate_reviewed: bool = False,
+            evaluate_final: bool = False,
             shuffle_questions_seed: Optional[int] = None,
             shuffle_answers_seed: Optional[int] = 0,
             num_final_questions: Optional[int] = None,
@@ -97,6 +108,10 @@ class AutoTestIAPipeline:
             use_llm_review: Explicitly enable/disable LLM review (used only if not resuming).
             generator_instructions: Custom instructions for the QuestionGenerator agent.
             reviewer_instructions: Custom instructions for the QuestionReviewer agent.
+            evaluator_instructions: Custom instructions for the QuestionEvaluator agent.
+            evaluate_initial: Run evaluator on questions right after generation.
+            evaluate_reviewed: Run evaluator on questions after review stage.
+            evaluate_final: Run evaluator on questions parsed from the final markdown file.
             shuffle_questions_seed: Seed for shuffling the final question order. None means no shuffle.
             shuffle_answers_seed: Seed for shuffling answers within questions. 0 means shuffle randomly each run, None means no shuffle (default uses 0).
             num_final_questions: Number of questions to select randomly from the final set. None means use all.
@@ -144,7 +159,15 @@ class AutoTestIAPipeline:
                  print("Error: Missing output_md_path for generation.", file=sys.stderr)
                  return ""
 
-            print(f"Provider: {self.generator.llm_provider}, Generator: {self.generator.model_name}, Reviewer: {self.reviewer.model_name if final_use_llm_review else 'Rules Only'}")
+            print(f"Provider: {self.generator.llm_provider_name}")
+            print(f"Generator: {self.generator.provider.model_name if self.generator.provider else 'N/A'}")
+            if final_use_llm_review:
+                print(f"Reviewer: {self.reviewer.provider.model_name if self.reviewer.provider else 'N/A'}")
+            else:
+                print("Reviewer: Rules Only (LLM Disabled)")
+
+            print(f"Evaluator: {self.evaluator.provider.model_name if self.evaluator.provider else 'N/A'}")
+
             if is_generating_from_file:
                 print(f"Input material: {input_material_path}")
             if image_paths:
@@ -256,6 +279,16 @@ class AutoTestIAPipeline:
 
             print(f"Generated a total of {len(generated_questions)} questions.")
 
+            # --- Optional Evaluation Step: Initial ---
+            if evaluate_initial and generated_questions:
+                print("\nStep 2a: Evaluating initial questions...")
+                generated_questions = self.evaluator.evaluate_questions(
+                    generated_questions, 
+                    stage='initial', 
+                    custom_instructions=evaluator_instructions
+                )
+                print("Initial evaluation complete.")
+
             # 3. Review Questions (OE2)
             print("\nStep 3: Reviewing questions...")
             # Pass reviewer instructions to the reviewer method
@@ -264,6 +297,17 @@ class AutoTestIAPipeline:
                 custom_instructions=reviewer_instructions # Pass instructions
             )
             print(f"Completed automated review for {len(reviewed_questions)} questions.")
+
+            # --- Optional Evaluation Step: Reviewed ---
+            if evaluate_reviewed and reviewed_questions:
+                print("\nStep 3a: Evaluating reviewed questions...")
+                reviewed_questions = self.evaluator.evaluate_questions(
+                    reviewed_questions, 
+                    stage='reviewed', 
+                    custom_instructions=evaluator_instructions
+                )
+                print("Reviewed evaluation complete.")
+
 
             # 4. Write to Markdown for Manual Review (OE3)
             print("\nStep 4: Writing questions to Markdown...")
@@ -333,6 +377,25 @@ class AutoTestIAPipeline:
             return markdown_file_for_conversion # Return the path that failed
 
         print(f"Parsed {len(final_questions_parsed)} questions from Markdown.")
+
+        # --- Optional Evaluation Step: Final ---
+        if evaluate_final and final_questions_parsed:
+            print("\nStep 5a: Evaluating final questions...")
+            final_questions_parsed = self.evaluator.evaluate_questions(
+                final_questions_parsed, 
+                stage='final', 
+                custom_instructions=evaluator_instructions
+            )
+            # Re-write the markdown file with the new evaluation data
+            print("Re-writing Markdown file with evaluation results...")
+            try:
+                evaluated_final_md_path = markdown_file_for_conversion.replace(".md", "_evaluated-final.md")
+                markdown_writer.write_questions_to_markdown(final_questions_parsed, evaluated_final_md_path)
+                print(f"Updated Markdown with evaluation results: {evaluated_final_md_path}")
+            except Exception as e:
+                logging.error(f"Failed to re-write Markdown file with evaluation results: {e}", exc_info=True)
+                print(f"Warning: Could not update Markdown with evaluation results: {e}")
+
 
         # --- Apply Post-Parsing Shuffling and Selection ---
         questions_for_conversion = list(final_questions_parsed) # Start with all parsed questions

@@ -5,18 +5,12 @@ from typing import List, Dict, Any, Optional
 from ..schemas import Question
 from .. import config
 import logging
-from .base_llm_agent import BaseLLMAgent
+from .base import BaseAgent
+from ..llm_providers import get_provider, LLMProvider
 from tqdm import tqdm
 
-# Import SDKs selectively if needed, or rely on generator having initialized them
-# Assuming pipeline passes the client if needed, or re-initialize here.
-# For simplicity, let's re-use the generator's initialization logic pattern if needed.
-# from openai import OpenAI, APIError, APITimeoutError
-# import google.generativeai as genai
-# from anthropic import Anthropic, APIError as AnthropicAPIError, APITimeoutError as AnthropicAPITimeoutError
-# import replicate
 
-class QuestionReviewer(BaseLLMAgent):
+class QuestionReviewer(BaseAgent):
     """Agent responsible for reviewing and potentially improving questions."""
 
     def __init__(self,
@@ -26,245 +20,91 @@ class QuestionReviewer(BaseLLMAgent):
                  model_name: str = config.REVIEWER_MODEL,
                  api_keys: Dict[str, str] = None):
 
-        super().__init__(llm_provider, model_name, api_keys)
-
+        super().__init__()
         self.criteria = criteria
-        if self.llm_provider == "stub":
-            self.use_llm = False # Force disable if provider is stub, overriding user input for use_llm
-        else:
-            self.use_llm = use_llm and self.client is not None # Only use LLM if requested AND client is available
+        self.provider: Optional[LLMProvider] = None
+        self.use_llm = use_llm
+        self.llm_provider_name = llm_provider
 
+        if self.llm_provider_name == "stub":
+            self.use_llm = False # Force disable if provider is stub
+        
+        if self.use_llm:
+            try:
+                self.provider = get_provider(
+                    provider_name=llm_provider,
+                    model_name=model_name,
+                    api_keys=api_keys
+                )
+            except (ValueError, RuntimeError) as e:
+                logging.error(f"Failed to initialize LLM provider for Reviewer: {e}. Disabling LLM review.")
+                self.use_llm = False
+        
         logging.info(f"Initializing QuestionReviewer (LLM Review Enabled: {self.use_llm})")
-        if self.use_llm: # This implies self.client is not None and self.llm_provider != "stub"
-            logging.info(f"  Reviewer Provider: {self.llm_provider}, Model: {self.model_name}")
-        elif self.llm_provider == "stub":
-            logging.info("  LLM Review STUB mode (client not initialized by base class).")
-        elif not use_llm: # Explicitly set to False by user
-            logging.info("  LLM Review explicitly disabled by configuration.")
-        elif not self.client : # Client init failed in base class
-            logging.info("  LLM Review disabled due to client initialization failure.")
+        if self.use_llm and self.provider:
+            logging.info(f"  Reviewer Provider: {self.llm_provider_name}, Model: {self.provider.model_name}")
 
     def review_questions(self, questions: List[Question], custom_instructions: Optional[str] = None) -> List[Question]:
         """
         Reviews a list of questions based on predefined criteria and optionally LLM.
-
-        Args:
-            questions: The list of Question objects to review.
-            custom_instructions: Optional custom instructions for the LLM reviewer.
-
-        Returns:
-            The list of reviewed (potentially modified) Question objects.
         """
         logging.info(f"Reviewing {len(questions)} questions...")
         reviewed_questions = []
         for q_orig in tqdm(questions, desc="Reviewing Questions"):
-            # Apply rule-based checks first (can be uncommented if needed)
-            # q_reviewed = self._apply_review_rules(q_orig)
             q_reviewed = q_orig # Start with original
 
-            # Then apply LLM review if enabled and client is ready
             if self.use_llm:
-                # Pass custom instructions to the LLM review method
                 q_reviewed = self._apply_llm_review(q_reviewed, custom_instructions)
 
             reviewed_questions.append(q_reviewed)
         logging.info("Review complete.")
         return reviewed_questions
 
-    def _apply_review_rules(self, question: Question) -> Question:
-        """Applies basic rule-based checks based on self.criteria."""
-        comments = question.review_comments[:] # Preserve previous comments
-        score = question.quality_score if question.quality_score is not None else 1.0
-
-        # Combine all options for length check
-        all_options = [question.correct_answer] + question.distractors
-        min_len = self.criteria.get("min_option_length", 0)
-        max_len = self.criteria.get("max_option_length", float('inf'))
-        length_issue = False
-        for i, option in enumerate(all_options):
-            option_label = f"Correct Answer" if i == 0 else f"Distractor {i}"
-            if len(option) < min_len:
-                comments.append(f"Rule: {option_label} too short (len {len(option)} < {min_len}).")
-                length_issue = True
-            if len(option) > max_len:
-                comments.append(f"Rule: {option_label} too long (len {len(option)} > {max_len}).")
-                length_issue = True
-        if length_issue: score = max(0.0, score - 0.1)
-
-        # Check for absolute statements in distractors only
-        absolute_statements = self.criteria.get("avoid_absolute_statements", [])
-        absolute_issue = False
-        if absolute_statements:
-            for i, distractor in enumerate(question.distractors):
-                if any(stmt in distractor.lower() for stmt in absolute_statements):
-                    comments.append(f"Rule: Distractor {i+1} uses absolute term (e.g., 'always', 'never').")
-                    absolute_issue = True
-            if absolute_issue: score = max(0.0, score - 0.05)
-
-        question.quality_score = round(max(0.0, min(1.0, score)), 2)
-        question.review_comments = list(set(comments)) # Remove duplicate rule comments
-        return question
-
     def _apply_llm_review(self, question: Question, custom_instructions: Optional[str] = None) -> Question:
         """Uses an LLM to review/score a question, incorporating custom instructions."""
-        if not self.client:
-            logging.error(f"LLM client for {self.llm_provider} not available. Skipping LLM review for question {question.id}.")
-            question.review_comments.append(f"LLM Review Skipped: Client not initialized.")
+        if not self.provider:
+            logging.error(f"LLM provider not available. Skipping LLM review for question {question.id}.")
             return question
 
-        self._check_structured_output_support()
-        logging.info(f"  LLM Reviewing Question {question.id} using {self.llm_provider} ({self.model_name})...")
+        logging.info(f"  LLM Reviewing Question {question.id} using {self.llm_provider_name} ({self.provider.model_name})...")
 
-        # Prepare input question JSON
         question_dict = {
             "text": question.text,
             "correct_answer": question.correct_answer,
             "distractors": question.distractors,
-            "explanation": question.explanation # Include explanation if available
+            "explanation": question.explanation
         }
         try:
-            question_json = json.dumps({str(k): v for k, v in question_dict.items() if v is not None}, indent=2, ensure_ascii=False)
+            question_json = json.dumps({k: v for k, v in question_dict.items() if v is not None}, indent=2, ensure_ascii=False)
         except TypeError as e:
-            logging.error(f"Could not serialize Question {question.id} to JSON for LLM review: {e}. Skipping LLM review.")
+            logging.error(f"Could not serialize Question {question.id} to JSON for LLM review: {e}. Skipping.")
             return question
 
-        # Format the system prompt, inserting custom instructions
-        system_prompt = config.REVIEW_SYSTEM_PROMPT.format(
-            custom_reviewer_instructions=custom_instructions if custom_instructions else "",
-            question_json=question_json # Placeholder for input question
+        system_prompt_template = config.REVIEW_SYSTEM_PROMPT.replace(
+            '{custom_reviewer_instructions}',
+            custom_instructions if custom_instructions else ""
         )
 
         try:
-            response_content = None
-            # --- Provider-specific calls ---
-            if self.llm_provider in ["openai", "openrouter"]:
-                params = {
-                    "model": self.model_name,
-                    "messages": [{"role": "system", "content": system_prompt}]
-                }
-                if self.llm_provider == "openrouter":
-                    schema = {
-                        "type": "object",
-                        "properties": {
-                            "difficulty_score": {"type": "number", "description": "Score from 0.0 to 1.0"},
-                            "quality_score": {"type": "number", "description": "Score from 0.0 to 1.0"},
-                            "review_comments": {"type": "string", "description": "Comments on the review"},
-                            "reviewed_question": {
-                                "type": "object",
-                                "properties": {
-                                    "text": {"type": "string"},
-                                    "correct_answer": {"type": "string"},
-                                    "distractors": {"type": "array", "items": {"type": "string"}}
-                                },
-                                "required": ["text", "correct_answer", "distractors"]
-                            }
-                        },
-                        "required": ["difficulty_score", "quality_score"]
-                    }
-                    params["response_format"] = {
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": "review_question",
-                            "strict": True,
-                            "schema": schema
-                        }
-                    }
-                else:  # openai
-                    params["response_format"] = {"type": "json_object"}
+            response_content = self.provider.review_question(
+                system_prompt=system_prompt_template,
+                question_json=question_json
+            )
 
-                completion = self._call_llm_with_retry(
-                    self.client.chat.completions.create,
-                    **params
-                )
-                response_content = completion.choices[0].message.content
-            elif self.llm_provider == "google":
-                 from ..schemas import LLMReview
-                 model = self.client.GenerativeModel(self.model_name)
-                 generation_config = self.client.types.GenerationConfig(
-                    response_mime_type="application/json",
-                    response_schema=LLMReview,
-                 )
-                 # Google typically takes the whole prompt as one part
-                 response = self._call_llm_with_retry(
-                     model.generate_content, [system_prompt], generation_config=generation_config
-                 )
-                 response_content = response.text
-            elif self.llm_provider == "anthropic":
-                 # Anthropic distinguishes system/user prompts better
-                 base_system_prompt = config.REVIEW_SYSTEM_PROMPT.split("\n\nInput Question (JSON format):")[0].format(
-                      custom_reviewer_instructions=custom_instructions if custom_instructions else ""
-                 ).strip()
-                 user_prompt_content = f"Input Question (JSON format):\n{question_json}\n\nOutput your review as a JSON object..." # Keep output format instruction with user input
-
-                 message = self._call_llm_with_retry(
-                     self.client.messages.create,
-                     model=self.model_name,
-                     max_tokens=1500,
-                     system=base_system_prompt, # Send base system prompt + custom instructions here
-                     messages=[{"role": "user", "content": user_prompt_content}] # Send the question JSON as user message
-                 )
-                 response_content = next((block.text for block in message.content if block.type == 'text'), None)
-            elif self.llm_provider == "replicate":
-                 # Combine everything into the main prompt for Replicate
-                 output = self._call_llm_with_retry(
-                     self.client.run, self.model_name, input={"prompt": system_prompt}
-                 )
-                 response_content = "".join(output)
-
-            # --- Process response ---
             if not response_content:
-                 logging.error(f"No review content received from LLM for question {question.id}.")
-                 return question
+                logging.error(f"No review content received from LLM for question {question.id}.")
+                return question
 
-            # Expect a dict with specific keys. Use base class method.
             parsed_review = self._parse_llm_json_response(response_content, expected_structure='review_dict')
 
             if parsed_review and isinstance(parsed_review, dict):
-                # Extract new fields
-                llm_diff_score = parsed_review.get("difficulty_score")
-                llm_qual_score = parsed_review.get("quality_score")
-                # Adjusted to expect "reviewed_question" directly, comments are optional/part of logic
                 reviewed_q_data = parsed_review.get("reviewed_question")
-                # Optionally look for explicit comments if the model provides them
-                llm_comments_str = parsed_review.get("review_comments") # Try to get explicit comments if provided
-
-
-                # Update scores
-                if llm_diff_score is not None:
-                    try:
-                        question.difficulty_score = round(float(llm_diff_score), 2)
-                    except (ValueError, TypeError):
-                        logging.warning(f"LLM returned invalid difficulty score: {llm_diff_score}")
-                        question.review_comments.append("LLM Review: Invalid difficulty score received.")
-                # else: Do not add comment if simply missing
-
-                if llm_qual_score is not None:
-                    try:
-                        # Blend or replace? Let's replace if LLM provides it.
-                        question.quality_score = round(max(0.0, min(1.0, float(llm_qual_score))), 2)
-                        # Or blend:
-                        # current_score = question.quality_score if question.quality_score is not None else 0.7
-                        # blend_factor = 0.6
-                        # new_score = (current_score * (1 - blend_factor)) + (float(llm_qual_score) * blend_factor)
-                        # question.quality_score = round(max(0.0, min(1.0, new_score)), 2)
-                    except (ValueError, TypeError):
-                        logging.warning(f"LLM returned invalid quality score: {llm_qual_score}")
-                        question.review_comments.append("LLM Review: Invalid quality score received.")
-                # else: Do not add comment if simply missing
-
-
-                # Add explicit comments if provided
-                if llm_comments_str and isinstance(llm_comments_str, str):
-                    question.review_comments.append(f"LLM Review Comments: {llm_comments_str}")
-
-
-                # Handle reviewed question data
                 if reviewed_q_data and isinstance(reviewed_q_data, dict) and all(k in reviewed_q_data for k in ["text", "correct_answer", "distractors"]):
                     # Basic validation
                     if isinstance(reviewed_q_data.get("text"), str) and \
                        isinstance(reviewed_q_data.get("correct_answer"), str) and \
                        isinstance(reviewed_q_data.get("distractors"), list) and \
-                       len(reviewed_q_data.get("distractors")) == len(question.distractors): # Check distractor count matches
+                       len(reviewed_q_data.get("distractors")) == len(question.distractors):
 
                         logging.info(f"Applying LLM suggested revisions to Question {question.id}")
                         if question.original_details is None:
@@ -276,20 +116,12 @@ class QuestionReviewer(BaseLLMAgent):
                         question.text = reviewed_q_data["text"]
                         question.correct_answer = reviewed_q_data["correct_answer"]
                         question.distractors = reviewed_q_data["distractors"]
-                        question.review_comments.append("LLM Review: Applied suggested revisions.")
                     else:
                         logging.warning(f"LLM returned 'reviewed_question' with invalid structure/types or distractor count: {reviewed_q_data}")
-                        question.review_comments.append("LLM Review: Suggestion ignored (invalid format/distractor count).")
-                # else: No revision provided or invalid format
-
-
             else:
-                question.review_comments.append("LLM Review: Failed to parse valid review response.")
+                logging.warning(f"Failed to parse a valid review response from LLM for question {question.id}")
 
         except Exception as e:
             logging.error(f"Error during LLM review call or processing for question {question.id}: {e}", exc_info=True)
-            question.review_comments.append(f"LLM Review Error: Processing failed ({type(e).__name__}).")
 
-        # Clean up comments list
-        question.review_comments = list(set(question.review_comments)) # Remove duplicates
         return question 

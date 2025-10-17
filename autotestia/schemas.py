@@ -3,6 +3,16 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 @dataclass
+class EvaluationData:
+    """Stores the results of an evaluation pass."""
+    difficulty_score: Optional[float] = None
+    pedagogical_value: Optional[float] = None
+    clarity_score: Optional[float] = None
+    distractor_plausibility_score: Optional[float] = None
+    evaluation_comments: List[str] = field(default_factory=list)
+    evaluator_guessed_correctly: Optional[bool] = None
+
+@dataclass
 class Question:
     """Represents a single multiple-choice question."""
     id: int
@@ -12,10 +22,11 @@ class Question:
     source_material: Optional[str] = None # e.g., filename, page number
     image_reference: Optional[str] = None # Path to an associated image
     explanation: Optional[str] = None # Optional explanation for the correct answer
-    difficulty_score: Optional[float] = None # Score assigned by reviewer agent
-    quality_score: Optional[float] = None # Score assigned by reviewer agent
-    review_comments: List[str] = field(default_factory=list) # Comments from reviewer
     original_details: Optional[Dict[str, Any]] = None # Stores original text/answers before LLM review modification
+    
+    # New evaluation fields
+    initial_evaluation: Optional[EvaluationData] = None
+    reviewed_evaluation: Optional[EvaluationData] = None
 
     @property
     def options(self) -> List[str]:
@@ -46,7 +57,12 @@ class LLMReviewedQuestion(BaseModel):
     distractors: List[str]
 
 class LLMReview(BaseModel):
-    difficulty_score: float = Field(..., description="Score from 0.0 to 1.0")
-    quality_score: float = Field(..., description="Score from 0.0 to 1.0")
-    review_comments: Optional[str] = Field(None, description="Comments on the review")
-    reviewed_question: Optional[LLMReviewedQuestion] = None 
+    reviewed_question: LLMReviewedQuestion
+
+class LLMEvaluation(BaseModel):
+    difficulty_score: float = Field(..., description="Score from 0.0 (very easy) to 1.0 (very difficult)")
+    pedagogical_value: float = Field(..., description="Score from 0.0 (very low value) to 1.0 (very high value)")
+    clarity: float = Field(..., description="Score from 0.0 (very unclear) to 1.0 (very clear)")
+    distractor_plausibility: float = Field(..., description="Score from 0.0 (very unplausible) to 1.0 (very plausible)")
+    guessed_correct_answer: int = Field(..., description="The 1-based index of the answer the model believes is correct.")
+    evaluation_comment: str = Field(..., description="A brief, one-sentence comment explaining the scores.") 

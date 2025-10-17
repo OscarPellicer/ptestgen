@@ -306,11 +306,15 @@ def prepare_for_rexams(questions: List[Question], output_dir: str):
                 f.write(f"extype: mchoice\n") # Multiple choice
                 f.write(f"exsolution: {solution_bitstring}\n") # Solution bitstring
                 f.write(f"exshuffle: TRUE\n") # Allow shuffling (TRUE or integer > 1 for sample size)
-                # Add scores as extras? (non-standard R/exams, might be used by custom templates)
-                if q.difficulty_score is not None:
-                    f.write(f"exextra[difficulty]: {q.difficulty_score:.2f}\n")
-                if q.quality_score is not None:
-                     f.write(f"exextra[quality]: {q.quality_score:.2f}\n")
+                
+                # Use the latest evaluation data available
+                latest_eval = q.reviewed_evaluation or q.initial_evaluation
+                if latest_eval:
+                    if latest_eval.difficulty_score is not None:
+                        f.write(f"exextra[difficulty]: {latest_eval.difficulty_score:.2f}\n")
+                    if latest_eval.pedagogical_value is not None: # Example of another metric
+                        f.write(f"exextra[pedagogy]: {latest_eval.pedagogical_value:.2f}\n")
+
 
             logging.debug(f"  - Created R/exams file: {q_filepath}")
 

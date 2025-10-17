@@ -34,6 +34,10 @@ def main():
                         type=str,
                         default=None,
                         help="Custom instructions to add to the reviewer prompt.")
+    parser.add_argument("--evaluator-instructions",
+                        type=str,
+                        default=None,
+                        help="Custom instructions to add to the evaluator prompt.")
 
     # --- Other Arguments ---
     parser.add_argument("-i", "--images",
@@ -62,6 +66,9 @@ def main():
     parser.add_argument("--reviewer-model",
                          default=None, # Default is None, pipeline will use config default for provider
                          help="Specific model name for the reviewer agent (overrides default for provider).")
+    parser.add_argument("--evaluator-model",
+                         default=None,
+                         help="Specific model name for the evaluator agent (overrides default for provider).")
     parser.add_argument("--use-llm-review",
                         action=argparse.BooleanOptionalAction, # Creates --use-llm-review / --no-use-llm-review
                         default=config.DEFAULT_LLM_REVIEW_ENABLED,
@@ -91,6 +98,12 @@ def main():
                          const=random.randint(1, 10000), # Use a random seed if flag is present without value
                          default=0, # Default behavior: shuffle answers (seed 0 indicates random shuffle per run)
                          help="Shuffle the order of answers (correct + distractors) within each question. Provide an optional integer seed for reproducibility. If omitted or provided without a value, answers are shuffled randomly.")
+    
+    # --- Evaluation Arguments ---
+    parser.add_argument("--evaluate-initial", action="store_true", help="Run evaluator on questions after generation.")
+    parser.add_argument("--evaluate-reviewed", action="store_true", help="Run evaluator on questions after the review stage.")
+    parser.add_argument("--evaluate-final", action="store_true", help="Run evaluator on questions parsed from the final/resumed Markdown file.")
+
     parser.add_argument("--num-final-questions",
                         type=int,
                         default=None, # Default: use all questions
@@ -155,6 +168,7 @@ def main():
     effective_provider = args.provider # Assume provider might be needed even without input file
     effective_generator_model = None
     effective_reviewer_model = None
+    effective_evaluator_model = None
     effective_llm_review = args.use_llm_review
     # Carry over shuffle/selection arguments regardless of mode
     shuffle_questions_seed = args.shuffle_questions
@@ -179,13 +193,17 @@ def main():
         if args.provider != config.LLM_PROVIDER: ignored_args_resume.append("--provider")
         if args.generator_model: ignored_args_resume.append("--generator-model")
         if args.reviewer_model: ignored_args_resume.append("--reviewer-model")
+        if args.evaluator_model: ignored_args_resume.append("--evaluator-model")
         if args.use_llm_review != config.DEFAULT_LLM_REVIEW_ENABLED: ignored_args_resume.append("--use-llm-review")
         if args.skip_manual_review: ignored_args_resume.append("--skip-manual-review") # Manual review choice happens *before* resume point
         if args.extract_doc_images: ignored_args_resume.append("--extract-doc-images")
         if args.language != config.DEFAULT_LANGUAGE: ignored_args_resume.append("--language")
         if args.generator_instructions: ignored_args_resume.append("--generator-instructions")
         if args.reviewer_instructions: ignored_args_resume.append("--reviewer-instructions")
-        # Shuffle/select args are NOT ignored
+        if args.evaluate_initial: ignored_args_resume.append("--evaluate-initial")
+        if args.evaluate_reviewed: ignored_args_resume.append("--evaluate-reviewed")
+        if args.evaluator_instructions: ignored_args_resume.append("--evaluator-instructions")
+        # shuffle/select/evaluate-final args are NOT ignored
 
         if ignored_args_resume:
             logging.warning(f"The following arguments are ignored when using --resume-from-md: {', '.join(ignored_args_resume)}")
@@ -227,6 +245,7 @@ def main():
         effective_provider = args.provider
         effective_generator_model = config.GENERATOR_MODEL_MAP.get(effective_provider)
         effective_reviewer_model = config.REVIEWER_MODEL_MAP.get(effective_provider)
+        effective_evaluator_model = config.EVALUATOR_MODEL_MAP.get(effective_provider)
         effective_llm_review = args.use_llm_review
 
         # Override models only if explicitly provided via CLI
@@ -234,6 +253,8 @@ def main():
             effective_generator_model = args.generator_model
         if args.reviewer_model:
             effective_reviewer_model = args.reviewer_model
+        if args.evaluator_model:
+            effective_evaluator_model = args.evaluator_model
 
         # Construct the config override dictionary for the pipeline
         config_override = {}
@@ -254,6 +275,13 @@ def main():
              else: # Handle case where provider has no default in map
                  print(f"Warning: No default reviewer model found for provider '{effective_provider}'. Using stub.", file=sys.stderr)
                  config_override["reviewer_model"] = "stub-reviewer-model" # Keep stub logic
+        
+        if effective_provider != config.LLM_PROVIDER or args.evaluator_model:
+            if effective_evaluator_model:
+                config_override["evaluator_model"] = effective_evaluator_model
+            else:
+                print(f"Warning: No default evaluator model found for provider '{effective_provider}'. Using stub.", file=sys.stderr)
+                config_override["evaluator_model"] = "stub-evaluator-model"
 
         # Override review flag if explicitly set via CLI
         if args.use_llm_review != config.DEFAULT_LLM_REVIEW_ENABLED:
@@ -303,6 +331,10 @@ def main():
             # Pass custom instructions (will be None if not provided)
             generator_instructions=args.generator_instructions if mode != "resume" else None,
             reviewer_instructions=args.reviewer_instructions if mode != "resume" else None,
+            evaluator_instructions=args.evaluator_instructions,
+            evaluate_initial=args.evaluate_initial if mode != "resume" else False,
+            evaluate_reviewed=args.evaluate_reviewed if mode != "resume" else False,
+            evaluate_final=args.evaluate_final,
             # Pass shuffling and selection arguments
             shuffle_questions_seed=shuffle_questions_seed,
             shuffle_answers_seed=shuffle_answers_seed,

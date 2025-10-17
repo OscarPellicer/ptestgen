@@ -10,15 +10,21 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
 
 *   **LLM Integration:** Supports multiple providers:
     *   **OpenRouter (Recommended):** Access a wide variety of models from different providers with a single API key. Simplifies configuration and allows for easy model switching.
+    *   **Ollama (e.g., Llama 3.1):** Supports structured output.
     *   OpenAI (e.g., GPT-4o, GPT-5)
     *   Google (e.g., Gemini 2.5 Pro, Gemini 2.5 Flash)
-    *   Anthropic (e.g., Claude 4.5 Sonnet, Claude 4.5 Haiku)
-    *   Replicate (e.g., Llama 3.2)
+    *   Anthropic (e.g., Claude 4.5 Sonnet, Claude 4.5 Haiku): *Discouraged due to structured output not being supported.*
+    *   Replicate (e.g., Llama 3.2): *Discouraged due to structured output not being supported.*
 *   **Flexible Input:**
     *   **Document-Based Generation (OE1):** Generate questions from text documents (**TXT, MD, PDF, DOCX, PPTX, RTF supported for text extraction**) and images (PNG, JPG, GIF, BMP). PDF/DOCX/PPTX parsing requires installing optional dependencies. Image extraction *from within documents* is experimental.
     *   **Instruction-Based Generation:** Generate questions based on specific instructions provided via the command line, without requiring an input document.
 *   **Customizable Prompts:** Add custom instructions to the underlying LLM prompts for generation and review using `--generator-instructions` and `--reviewer-instructions`.
-*   **Automated Review (OE2):** Rule-based checks and optional LLM-based review for quality criteria (clarity, distractor plausibility, etc.).
+*   **Automated Review (OE2):** An LLM-based agent refines questions for clarity, correctness, and adherence to pedagogical best practices.
+*   **Automated Evaluation (OE6):** An optional, separate LLM-based agent evaluates questions against multiple criteria:
+    *   **Difficulty Score:** How challenging the question is.
+    *   **Pedagogical Value:** How well it tests key concepts.
+    *   **Clarity:** How clear the question and options are.
+    *   **Distractor Plausibility:** How convincing the incorrect answers are.
 *   **Manual Review Workflow (OE3):** Outputs questions in a clean Markdown format for easy verification and editing by the educator. Can be skipped via CLI flag.
 *   **Format Conversion (OE4):** Converts the finalized questions into formats compatible with Moodle (XML/GIFT), Wooclap (Placeholder), and R/exams (.Rmd structure).
 *   **Question Shuffling & Selection:**
@@ -131,7 +137,10 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
         -n 4 \
         --provider openrouter \
         --generator-model google/gemini-2.5-pro \
-        --reviewer-model google/gemini-2.5-pro \
+        --reviewer-model google/gemini-2.5-flash \
+        --evaluator-model google/gemini-2.5-flash \
+        --evaluate-initial \
+        --evaluate-reviewed \
         --use-llm-review \
         -f none \
         -o generated/topic_questions.md \
@@ -147,16 +156,22 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
     # Make sure ANTHROPIC_API_KEY is in .env
     autotestia path/to/course_notes.md \
         -n 10 \
-        --provider anthropic \
-        --generator-model claude-sonnet-4-5 \
-        --reviewer-model claude-sonnet-4-5 \
+        --provider openrouter \
+        --generator-model google/gemini-2.5-pro \
+        --reviewer-model google/gemini-2.5-flash \
+        --evaluator-model google/gemini-2.5-flash \
+        --evaluate-initial \
+        --evaluate-reviewed \
         --use-llm-review \
         -f none \
+        -o generated/course_questions.md \
         --language Spanish \
-        -o generated/course_questions.md
+        --reviewer-model claude-sonnet-4-5 \
+        --language Spanish \
+        --generator-instructions "Create questions about the specifics of LDA, LSA / LSI"
     ```
     *   Creates `generated/course_questions.md` with 10 questions from course material.
-    *   Uses both generator and reviewer models for quality control.
+    *   Uses both generator and reviewer models for quality control and evaluation.
 
 3.  **Generate questions based only on instructions (no input file):**
     ```bash
@@ -164,7 +179,7 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
     autotestia \
         -n 6 \
         -o generated/python_regex_questions.md \
-        --provider anthropic \
+        --provider openrouter \
         --generator-instructions "Generate multiple-choice questions specifically about Python regular expressions using the 're' module. Focus on questions requiring either synthesis (writing a regex pattern based on a description) or analysis (determining what a given regex pattern matches or does). Cover common concepts like character classes, quantifiers, grouping, anchors, lookarounds, and standard 're' functions (e.g., search, match, findall, sub)." \
         --use-llm-review \
         --reviewer-instructions "Ensure questions accurately test Python regex synthesis or analysis as requested. Verify the correctness of regex patterns, expected matches, and explanations. Ensure distractors are plausible but incorrect applications or interpretations of regex concepts." \
@@ -182,6 +197,7 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
         -f wooclap \
         --shuffle-questions 123 \
         --shuffle-answers 123
+        --evaluate-final
     ```
     *   Parses existing `generated/questions.md` file.
     *   Creates Wooclap-compatible output with shuffled questions and answers.
@@ -235,6 +251,7 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
     *   `--provider`: LLM provider (choices: `openai`, `google`, `anthropic`, `replicate`, `openrouter`, `stub`, default: from `.env` or `openrouter`).
     *   `--generator-model`: Override default generator model for the provider.
     *   `--reviewer-model`: Override default reviewer model for the provider.
+    *   `--evaluator-model`: Override default evaluator model for the provider.
     *   `--use-llm-review` / `--no-use-llm-review`: Enable/disable LLM-based review agent.
     *   `--skip-manual-review`: Skip the pause for manual Markdown editing.
     *   `--extract-doc-images`: [Experimental] Attempt to extract images from documents (requires `input_material`).
@@ -247,6 +264,11 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
     *   `--shuffle-answers [SEED]`: Shuffle the order of answers within each question. Provide an optional integer seed. If omitted or 0, shuffles 
     randomly per run.
     *   `--num-final-questions N`: Randomly select `N` questions from the final set (after potential shuffling). If omitted, all questions are used.
+*   **Evaluation Control:**
+    *   `--evaluator-instructions`: Custom instructions to add to the evaluator prompt.
+    *   `--evaluate-initial`: Run the evaluator on questions immediately after they are generated.
+    *   `--evaluate-reviewed`: Run the evaluator on questions after they have been processed by the reviewer agent.
+    *   `--evaluate-final`: Run the evaluator on the final set of questions (either from a resumed Markdown file or after the manual review step).
 *   **General Options:**
     *   `--log-level`: Set logging verbosity (choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, default: `WARNING`).
 

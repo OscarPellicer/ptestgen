@@ -17,6 +17,9 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# Ollama Configuration
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+
 
 # --- Model Selection ---
 # Define models for each provider (using requested models or sensible defaults)
@@ -27,24 +30,36 @@ GENERATOR_MODEL_MAP = {
     "anthropic": os.getenv("ANTHROPIC_GENERATOR_MODEL", "claude-sonnet-4-5"),
     "replicate": os.getenv("REPLICATE_GENERATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
     "openrouter": os.getenv("OPENROUTER_GENERATOR_MODEL", "google/gemini-2.5-pro"),
+    "ollama": os.getenv("OLLAMA_GENERATOR_MODEL", "gemma3:4b"),
     "stub": "stub-generator-model"
 }
 
 REVIEWER_MODEL_MAP = { # Potentially use a cheaper model for review
     "openai": os.getenv("OPENAI_REVIEWER_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_REVIEWER_MODEL", "gemini-2.5-pro"),
-    "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-sonnet-4-5"), 
+    "google": os.getenv("GOOGLE_REVIEWER_MODEL", "gemini-2.5-flash"),
+    "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-haiku-4-5"), 
     "replicate": os.getenv("REPLICATE_REVIEWER_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
-    "openrouter": os.getenv("OPENROUTER_REVIEWER_MODEL", "google/gemini-2.5-pro"),
+    "openrouter": os.getenv("OPENROUTER_REVIEWER_MODEL", "google/gemini-2.5-flash"),
+    "ollama": os.getenv("OLLAMA_REVIEWER_MODEL", "gemma3:4b"),
     "stub": "stub-reviewer-model"
 }
 
 # TODO: Add Evaluator Model Map (OE6)
-EVALUATOR_MODEL = "stub-model" # For OE6
+EVALUATOR_MODEL_MAP = { # Potentially use a cheaper model for review
+    "openai": os.getenv("OPENAI_EVALUATOR_MODEL", "gpt-4o"),
+    "google": os.getenv("GOOGLE_EVALUATOR_MODEL", "gemini-2.5-flash"),
+    "anthropic": os.getenv("ANTHROPIC_EVALUATOR_MODEL", "claude-haiku-4-5"), 
+    "replicate": os.getenv("REPLICATE_EVALUATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
+    "openrouter": os.getenv("OPENROUTER_EVALUATOR_MODEL", "google/gemini-2.5-flash"),
+    "ollama": os.getenv("OLLAMA_EVALUATOR_MODEL", "gemma3:4b"),
+    "stub": "stub-evaluator-model"
+}
+
 
 # Get the actual model names based on the selected provider
 GENERATOR_MODEL = GENERATOR_MODEL_MAP.get(LLM_PROVIDER, "stub-generator-model")
 REVIEWER_MODEL = REVIEWER_MODEL_MAP.get(LLM_PROVIDER, "stub-reviewer-model")
+EVALUATOR_MODEL = EVALUATOR_MODEL_MAP.get(LLM_PROVIDER, "stub-evaluator-model")
 
 
 # --- Agent Settings ---
@@ -109,14 +124,33 @@ If the question or the answer or the distractors contain any piece of code, pseu
 
 {custom_reviewer_instructions}
 
-Provide scores for difficulty (0.0 = extremely easy, 1.0 = extremely difficult) and quality (0.0 = extremely poor quality, 1.0 = excellent quality).
-Finally, if changes are needed, provide the corrected question (including the question text, the correct answer and the confounders) in the same JSON format as the input question, under the key "reviewed_question".
+If changes are needed, provide the corrected question (including the question text, the correct answer and the confounders) in the same JSON format as the input question, under the key "reviewed_question". If no changes are needed, return the original question under the "reviewed_question" key.
 
 Input Question (JSON format):
 
 {question_json}
 
-Output your review as a JSON object with keys: "difficulty_score" (float), "quality_score" (float), "reviewed_question" (optional: a JSON object with keys: "text", "correct_answer", "distractors"). OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
+Output your review as a JSON object with a single key: "reviewed_question", which contains a JSON object with keys: "text", "correct_answer", "distractors". OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
+"""
+
+EVALUATION_SYSTEM_PROMPT = """
+You are an AI assistant expert in evaluating the quality of multiple-choice questions based on multiple pedagogical criteria.
+From the provided list of `options`, first identify and select the 1-based index of the answer you believe is correct.
+Then, for the question as a whole, provide a score from 0.0 to 1.0 for each of the following criteria:
+- difficulty_score: How difficult is the question for a university student? (0.0 = very easy, 1.0 = very difficult)
+- pedagogical_value: How well does the question assess understanding of a key concept? (0.0 = very low value, 1.0 = very high value)
+- clarity: How clear and unambiguous is the question and its options? (0.0 = very unclear, 1.0 = very clear)
+- distractor_plausibility: How plausible are the incorrect options (distractors)? (0.0 = not plausible at all, 1.0 = very plausible)
+
+Finally, provide a brief, one-sentence constructive comment explaining your scores.
+
+{custom_evaluator_instructions}
+
+Input Question (JSON format):
+
+{question_json}
+
+Output your evaluation as a JSON object with keys: "guessed_correct_answer" (int), "difficulty_score" (float), "pedagogical_value" (float), "clarity" (float), "distractor_plausibility" (float), and "evaluation_comment" (string). OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
 """
 
 
@@ -140,6 +174,7 @@ STRUCTURED_OUTPUT_SUPPORTED_MODELS = {
     # See: https://openrouter.ai/models?fmt=cards&supported_parameters=structured_outputs
     "openrouter": ["*"], # Using a wildcard to mean "all"
     "google": ["*"], # Broader keywords
+    "ollama": ["*"],
     "anthropic": [], # Not implemented with native JSON mode
     "replicate": [], # Not implemented with native JSON mode
 } 

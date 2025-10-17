@@ -1,7 +1,7 @@
 import os
 import random # For shuffling options in markdown output - NOW UNUSED
 from typing import List
-from ..schemas import Question
+from ..schemas import Question, EvaluationData
 import logging
 import re # Import re
 
@@ -9,7 +9,6 @@ def write_questions_to_markdown(questions: List[Question], output_file: str):
     """Writes a list of questions to a Markdown file for manual review, matching the specified format."""
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-    # Use 'utf-8-sig' to handle potential BOM (Byte Order Mark) issues, common on Windows
     with open(output_file, 'w', encoding='utf-8-sig') as f:
         # Write Header
         f.write("# AutoTestIA Generated Questions for Review\n\n")
@@ -33,37 +32,50 @@ Ensure the format remains consistent for later processing.\n""")
             f.write(f"**Source:** {q.source_material or 'N/A'}\n")
             if q.image_reference:
                 f.write(f"**Image:** {q.image_reference}\n")
-            if q.difficulty_score is not None:
-                 f.write(f"**Auto-Review Difficulty:** {q.difficulty_score:.2f}\n")
-            if q.quality_score is not None:
-                f.write(f"**Auto-Review Quality:** {q.quality_score:.2f}\n")
-            # if q.review_comments:
-            #     # Join comments into a single block
-            #     comments_str = "\n".join([f"- {c}" for c in q.review_comments])
-            #     f.write(f"**Auto-Review Comments:**\n{comments_str}\n")
-            f.write("\n") # Blank line after metadata
+            
+            f.write("\n")
 
-            # --- Reviewed/Current Question Details ---
+            # Helper to write evaluation blocks
+            def write_eval_block(eval_data, title):
+                if not eval_data:
+                    return
+                f.write(f"### {title}\n\n")
+                if eval_data.difficulty_score is not None:
+                    f.write(f"**Difficulty Score:** {eval_data.difficulty_score:.2f}\n")
+                if eval_data.pedagogical_value is not None:
+                    f.write(f"**Pedagogical Value:** {eval_data.pedagogical_value:.2f}\n")
+                if eval_data.clarity_score is not None:
+                    f.write(f"**Clarity Score:** {eval_data.clarity_score:.2f}\n")
+                if eval_data.distractor_plausibility_score is not None:
+                    f.write(f"**Distractor Plausibility:** {eval_data.distractor_plausibility_score:.2f}\n")
+                if eval_data.evaluator_guessed_correctly is not None:
+                    f.write(f"**Evaluator Guessed Correctly:** {'Yes' if eval_data.evaluator_guessed_correctly else 'No'}\n")
+                if eval_data.evaluation_comments:
+                    comments_str = "\n".join([f"- {c}" for c in eval_data.evaluation_comments])
+                    f.write(f"**Evaluation Comments:**\n{comments_str}\n")
+                f.write("\n")
+
+            # --- 1. Final (Reviewed) Question Details ---
             f.write(f"**Question Text:**\n{q.text}\n\n")
-
-            # Combine correct answer and distractors
-            options_to_display = [(q.correct_answer, True)] + [(d, False) for d in q.distractors]
-
+            options_to_display = [q.correct_answer] + q.distractors
             f.write("**Options:**\n\n")
-            for option_text, is_correct in options_to_display:
-                #correct_marker = "YES" if is_correct else "NO"
+            for option_text in options_to_display:
                 f.write(f"- {option_text}\n")
 
             if q.explanation:
-                 f.write(f"\n**Explanation:**\n{q.explanation}\n") # Add blank line before explanation if text/options are present
+                 f.write(f"\n**Explanation:**\n{q.explanation}\n")
+            
+            f.write("\n")
 
-            # --- Original Question Details (Optional) ---
+            # --- 2. Reviewed Evaluation ---
+            write_eval_block(q.reviewed_evaluation, "Reviewed Evaluation")
+
+            # --- 3. Original Question Details (Optional) ---
             show_original = False
             if q.original_details:
                 original_text = q.original_details.get('text')
                 original_correct = q.original_details.get('correct_answer')
                 original_distractors = q.original_details.get('distractors', [])
-                # Compare list content, order doesn't matter for difference detection
                 original_distractors_set = set(original_distractors)
                 current_distractors_set = set(q.distractors)
 
@@ -71,22 +83,21 @@ Ensure the format remains consistent for later processing.\n""")
                     original_correct != q.correct_answer or
                     original_distractors_set != current_distractors_set):
                     show_original = True
-
+            
             if show_original:
-                # Add a newline before this section if explanation wasn't present
-                if not q.explanation:
-                    f.write("\n")
                 f.write("### Original Question Details (Before LLM Review)\n\n")
                 f.write(f"**Original Question Text:**\n{original_text or 'N/A'}\n\n")
 
-                # Display original options (correct answer followed by distractors as stored)
-                orig_options = [(original_correct, True)] + [(d, False) for d in original_distractors]
+                orig_options = [original_correct] + original_distractors
                 f.write("**Original Question Options:**\n\n")
-                for opt_text, is_correct in orig_options:
-                    # correct_marker = "YES" if is_correct else "NO"
+                for opt_text in orig_options:
                     f.write(f"- {opt_text}\n")
+                
+                f.write("\n")
 
-        # Add a trailing newline for POSIX compatibility
+            # --- 4. Initial Evaluation ---
+            write_eval_block(q.initial_evaluation, "Initial Evaluation")
+
         f.write("\n")
 
     logging.info(f"Successfully wrote {len(questions)} questions to Markdown: {output_file}")
@@ -142,14 +153,14 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
             "source_material": None,
             "image_reference": None,
             "explanation": None,
-            "difficulty_score": None,
-            "quality_score": None,
-            "review_comments": []
+            "initial_evaluation": None,
+            "reviewed_evaluation": None,
         }
         options_parsed = [] # Temp list: [(text, is_correct_bool)]
         current_multiline_field = None # Tracks 'text', 'explanation'
         multiline_buffer = [] # Accumulates lines for the current field
         parsing_active = True # Flag to stop parsing if original section is hit
+        current_evaluation_target = None # To know if we are parsing 'initial' or 'reviewed' eval
 
         for line_num, line in enumerate(lines):
             stripped_line = line.strip()
@@ -172,15 +183,15 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
             # --- Determine if a new section is starting, which terminates the previous multiline field ---
             new_section_header = None
             section_headers = {
-                "## Question": None, # Special handling below
-                "DELETE=": None, # Special handling below
+                "## Question": None, 
+                "### Initial Evaluation": "initial_eval",
+                "### Reviewed Evaluation": "reviewed_eval",
+                "### Original Question Details": None,
                 "**Source:**": None,
                 "**Image:**": None,
-                "**Auto-Review Difficulty:**": None,
-                "**Auto-Review Quality:**": None,
-                "**Auto-Review Comments:**": "review_comments", # Mark as special multiline type
+                # These are now inside eval blocks
                 "**Question Text:**": "text",
-                "**Options:**": "options", # Mark as special multiline type
+                "**Options:**": "options", 
                 "**Explanation:**": "explanation",
             }
 
@@ -188,13 +199,54 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
                 if stripped_line.startswith(header):
                     new_section_header = header
                     # Finalize previous multiline buffer (text or explanation)
-                    if current_multiline_field and current_multiline_field not in ["options", "review_comments"] and multiline_buffer:
+                    if current_multiline_field and multiline_buffer:
                         content = "\n".join(multiline_buffer).strip()
                         if current_multiline_field in question_data:
                             question_data[current_multiline_field] = content if content else None
                     multiline_buffer = [] # Reset buffer regardless
-                    current_multiline_field = field_key # Set new field type (None for non-multiline headers)
+                    current_multiline_field = field_key # Set new field type
+                    
+                    # Handle new evaluation sections
+                    if field_key == "initial_eval":
+                        current_evaluation_target = "initial_evaluation"
+                        question_data[current_evaluation_target] = {}
+                    elif field_key == "reviewed_eval":
+                        current_evaluation_target = "reviewed_evaluation"
+                        question_data[current_evaluation_target] = {}
+                    else: # If it's not an eval header, we are no longer parsing an eval block
+                        current_evaluation_target = None
+
                     break # Found the header for this line
+
+            # If we are inside an evaluation block, parse its fields
+            if current_evaluation_target:
+                eval_dict = question_data[current_evaluation_target]
+                if stripped_line.startswith("**Difficulty Score:**"):
+                    try: eval_dict["difficulty_score"] = float(stripped_line.split(":")[1].strip())
+                    except (ValueError, IndexError): pass
+                elif stripped_line.startswith("**Pedagogical Value:**"):
+                    try: eval_dict["pedagogical_value"] = float(stripped_line.split(":")[1].strip())
+                    except (ValueError, IndexError): pass
+                elif stripped_line.startswith("**Clarity Score:**"):
+                    try: eval_dict["clarity_score"] = float(stripped_line.split(":")[1].strip())
+                    except (ValueError, IndexError): pass
+                elif stripped_line.startswith("**Distractor Plausibility:**"):
+                    try: eval_dict["distractor_plausibility_score"] = float(stripped_line.split(":")[1].strip())
+                    except (ValueError, IndexError): pass
+                elif stripped_line.startswith("**Evaluator Guessed Correctly:**"):
+                    guess_str = stripped_line.split(":")[1].strip().lower()
+                    if guess_str == 'yes': eval_dict["evaluator_guessed_correctly"] = True
+                    elif guess_str == 'no': eval_dict["evaluator_guessed_correctly"] = False
+                elif stripped_line.startswith("**Evaluation Comments:**"):
+                    current_multiline_field = "evaluation_comments" # Special state for comments
+                    multiline_buffer = []
+                elif current_multiline_field == "evaluation_comments":
+                    match = re_comment.match(stripped_line)
+                    if match:
+                        if "evaluation_comments" not in eval_dict:
+                            eval_dict["evaluation_comments"] = []
+                        eval_dict["evaluation_comments"].append(match.group(1).strip())
+                continue # Move to next line after processing eval field
 
             # --- Process based on the identified section or multiline state ---
             # Metadata
@@ -202,49 +254,38 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
                 question_data["source_material"] = stripped_line.replace("**Source:**", "").strip()
             elif stripped_line.startswith("**Image:**"):
                 question_data["image_reference"] = stripped_line.replace("**Image:**", "").strip()
-            elif stripped_line.startswith("**Auto-Review Difficulty:**"):
-                 try:
-                     question_data["difficulty_score"] = float(stripped_line.replace("**Auto-Review Difficulty:**", "").strip())
-                 except ValueError: pass
-            elif stripped_line.startswith("**Auto-Review Quality:**"):
-                 try:
-                     question_data["quality_score"] = float(stripped_line.replace("**Auto-Review Quality:**", "").strip())
-                 except ValueError: pass
 
             # Multiline Section Starts & Content Capture
-            elif new_section_header == "**Auto-Review Comments:**":
-                pass # Handled below by state check
             elif new_section_header == "**Question Text:**":
                 initial_text = stripped_line.replace("**Question Text:**", "").strip()
                 if initial_text: multiline_buffer.append(initial_text)
             elif new_section_header == "**Options:**":
-                pass # Handled below by state check
+                pass 
             elif new_section_header == "**Explanation:**":
                 initial_text = stripped_line.replace("**Explanation:**", "").strip()
                 if initial_text: multiline_buffer.append(initial_text)
 
-            # Content capture for ongoing multiline sections or special sections
-            elif current_multiline_field == "review_comments":
-                 match = re_comment.match(stripped_line)
-                 if match:
-                     question_data["review_comments"].append(match.group(1).strip())
+            # Content capture for ongoing multiline sections
             elif current_multiline_field == "options":
                  match = re_option.match(stripped_line)
                  if match:
                      option_text = match.group(1).strip()
                      options_parsed.append(option_text)
-                 elif stripped_line: # Log unexpected non-empty lines in options section
-                      logging.warning(f"Ignoring unexpected line in Options section for Q {question_data.get('id', 'unknown')}: '{stripped_line}'")
             elif current_multiline_field in ["text", "explanation"]:
-                 # Only append if it wasn't a header line we just processed
                  if not new_section_header:
-                     multiline_buffer.append(line) # Append raw line to preserve internal newlines if needed, strip later
-
+                     multiline_buffer.append(line)
+        
         # --- Finalize the last multiline field after loop finishes ---
-        if current_multiline_field and current_multiline_field not in ["options", "review_comments"] and multiline_buffer:
+        if current_multiline_field in ["text", "explanation"] and multiline_buffer:
              content = "\n".join(multiline_buffer).strip()
              if current_multiline_field in question_data:
                  question_data[current_multiline_field] = content if content else None
+
+        # Finalize evaluation objects from dicts
+        if question_data.get('initial_evaluation'):
+            question_data['initial_evaluation'] = EvaluationData(**question_data['initial_evaluation'])
+        if question_data.get('reviewed_evaluation'):
+            question_data['reviewed_evaluation'] = EvaluationData(**question_data['reviewed_evaluation'])
 
         # --- Process Parsed Options ---
         if options_parsed:
@@ -273,8 +314,6 @@ def parse_reviewed_markdown(markdown_file: str) -> List[Question]:
             try:
                 # Filter out keys with None values before creating Question
                 final_data = {k: v for k, v in question_data.items() if v is not None}
-                # Ensure essential lists exist even if empty
-                if "review_comments" not in final_data: final_data["review_comments"] = []
                 if "distractors" not in final_data: final_data["distractors"] = []
 
                 q = Question(**final_data)
