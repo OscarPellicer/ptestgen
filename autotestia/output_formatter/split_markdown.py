@@ -7,8 +7,8 @@ from typing import List, Union, Dict, Any # Added Dict, Any
 
 # Adjust import path based on the actual location of schemas.py and markdown_writer.py
 # Assuming split_markdown.py is in autotestia/output_formatter/
-from ..schemas import Question
-from .markdown_writer import parse_reviewed_markdown, write_questions_to_markdown
+from autotestia.schemas import Question
+from autotestia.output_formatter.markdown_writer import parse_reviewed_markdown, write_questions_to_markdown
 
 def main():
     parser = argparse.ArgumentParser(description="Split a Markdown file containing AutoTestIA questions into multiple files.")
