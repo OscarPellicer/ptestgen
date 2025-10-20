@@ -245,6 +245,25 @@ def prepare_for_rexams(questions: List[Question], output_dir: str):
     os.makedirs(output_dir, exist_ok=True)
     logging.info(f"Preparing {len(questions)} R/exams files in directory: {output_dir}")
 
+    # --- Sanitize quotes before writing ---
+    quotes_found_warning = False
+    for q in questions:
+        if '"' in q.text:
+            q.text = q.text.replace('"', "'")
+            quotes_found_warning = True
+        if '"' in q.correct_answer:
+            q.correct_answer = q.correct_answer.replace('"', "'")
+            quotes_found_warning = True
+        for i, distractor in enumerate(q.distractors):
+            if '"' in distractor:
+                q.distractors[i] = distractor.replace('"', "'")
+                quotes_found_warning = True
+    
+    if quotes_found_warning:
+        print("Warning: Detected and replaced double quotes in question text/options to ensure LaTeX compatibility.")
+        logging.warning("Replaced double quotes with single quotes in questions for R/exams preparation.")
+    # --- End sanitization ---
+
     for i, q in enumerate(questions):
         # Create a unique filename
         q_filename = f"question_{q.id}_{i+1}.Rmd"

@@ -199,6 +199,22 @@ def generate_rexams_pdfs(
         else:
             logging.error(f"R script execution failed with return code {process.returncode}.")
             logging.error(f"R script STDERR (Full):\n{process.stderr}") 
+            
+            # --- BEGIN: Attempt to read and display exam1.log ---
+            log_file_path = os.path.join(os.path.abspath(exams_output_dir), "exam1.log")
+            if os.path.exists(log_file_path):
+                logging.info(f"Found log file at: {log_file_path}. Displaying contents:")
+                try:
+                    with open(log_file_path, 'r', encoding='utf-8') as log_file:
+                        log_contents = log_file.read()
+                        logging.error(f"--- Contents of exam1.log ---\n{log_contents}\n-----------------------------")
+                        print(f"\n--- Contents of exam1.log ---\n{log_contents}\n-----------------------------\n")
+                except Exception as log_e:
+                    logging.error(f"Failed to read log file {log_file_path}: {log_e}")
+            else:
+                logging.warning(f"Could not find log file at {log_file_path} to provide more details.")
+            # --- END: Attempt to read and display exam1.log ---
+
             err = process.stderr.splitlines()[-10:]
             print(f"Error: R script execution failed. Check logs. STDERR (last 10 lines):\n{err}")
             return False

@@ -42,12 +42,23 @@ if(!require("exams")) {
   cat("Installing 'exams' package...\n")
   install.packages("exams", repos = "http://cran.rstudio.com/")
 }
-# if(!require("tinytex")) {
-#   cat("Installing 'tinytex' package...\n")
-#   install.packages("tinytex", repos = "http://cran.rstudio.com/")
-#   # Consider if tinytex::install_tinytex() is needed and where it should be called.
-#   # For automated pipelines, it's usually better if TeX is pre-installed.
-# }
+if(!require("tinytex")) {
+  cat("Installing 'tinytex' package...\n")
+  install.packages("tinytex", repos = "http://cran.rstudio.com/")
+}
+
+# Ensure TinyTeX is installed and has the necessary packages
+tryCatch({
+    if(!tinytex::tinytex_root()) {
+        cat("TinyTeX not found, installing it...\n")
+        tinytex::install_tinytex()
+    }
+    cat("Checking for Spanish hyphenation package...\n")
+    tinytex::tlmgr_install("hyphen-spanish")
+}, error = function(e) {
+    cat("An error occurred during TinyTeX setup or package installation: ", e$message, "\n")
+    cat("Please check your internet connection and R environment permissions.\n")
+})
 
 if(!require("optparse")) {
   cat("Installing 'optparse' package...\n")
@@ -153,6 +164,8 @@ generate_exam_set <- function() {
     header = exam_header,
     encoding = "UTF-8",
     blank = 1,
+    keep_tex = TRUE,
+    texdir = output_dir_path,
   )
   
   sampled_questions_list_file <- file.path(output_dir_path, "sampled_questions.txt")
