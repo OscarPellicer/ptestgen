@@ -13,6 +13,8 @@ from .agents.reviewer import QuestionReviewer
 from .agents.evaluator import QuestionEvaluator
 from .output_formatter import markdown_writer, converters
 from .rexams import generate_exams as rexams_wrapper
+from .pexams import generate_exams as pexams_wrapper
+from .pexams import utils as pexams_utils
 
 class AutoTestIAPipeline:
     """Orchestrates the AutoTestIA question generation process."""
@@ -85,9 +87,13 @@ class AutoTestIAPipeline:
             shuffle_questions_seed: Optional[int] = None,
             shuffle_answers_seed: Optional[int] = 0,
             num_final_questions: Optional[int] = None,
-            rexams_title: Optional[str] = None,
-            rexams_course: Optional[str] = None,
-            rexams_date: Optional[str] = None
+            exam_title: Optional[str] = None,
+            exam_course: Optional[str] = None,
+            exam_date: Optional[str] = None,
+            exam_models: int = 4,
+            pexams_font_size: str = "11pt",
+            pexams_columns: int = 1,
+            pexams_id_length: int = 10
             ) -> str:
         """
         Runs the AutoTestIA pipeline.
@@ -99,12 +105,12 @@ class AutoTestIAPipeline:
             resume_md_path: Path to an existing Markdown file to resume processing from.
                              If provided, input_material_path and related args are ignored.
             image_paths: Optional list of paths to images (used only if not resuming).
-            output_formats: List of desired output formats ('moodle_xml', 'gift', 'wooclap', 'rexams', 'none').
+            output_formats: List of desired output formats ('moodle_xml', 'gift', 'wooclap', 'rexams', 'pexams', 'none').
                             Defaults to ['moodle_xml', 'gift'].
             num_questions: Desired number of questions (used only if not resuming).
             extract_images_from_doc: Attempt to extract images (used only if not resuming).
             skip_manual_review: Bypass manual review (used only if not resuming).
-            language: Language for questions (used only if not resuming).
+            language: Language of the test
             use_llm_review: Explicitly enable/disable LLM review (used only if not resuming).
             generator_instructions: Custom instructions for the QuestionGenerator agent.
             reviewer_instructions: Custom instructions for the QuestionReviewer agent.
@@ -115,9 +121,13 @@ class AutoTestIAPipeline:
             shuffle_questions_seed: Seed for shuffling the final question order. None means no shuffle.
             shuffle_answers_seed: Seed for shuffling answers within questions. 0 means shuffle randomly each run, None means no shuffle (default uses 0).
             num_final_questions: Number of questions to select randomly from the final set. None means use all.
-            rexams_title: Custom title for R/exams PDF output. If None, R script default is used.
-            rexams_course: Custom course name for R/exams PDF output. If None, R script default is used.
-            rexams_date: Custom date for R/exams PDF output. If None, R script default is used.
+            exam_title: Custom title for R/exams or pexams PDF output.
+            exam_course: Custom course name for R/exams or pexams PDF output.
+            exam_date: Custom date for R/exams or pexams PDF output.
+            exam_models: Number of different exam models to generate.
+            pexams_font_size: Font size for pexams PDF output.
+            pexams_columns: Number of columns for questions in pexams PDF.
+            pexams_id_length: Number of boxes for the student ID grid.
 
         Returns:
             The path to the intermediate Markdown file.
@@ -519,20 +529,21 @@ class AutoTestIAPipeline:
             # Prepare custom parameters for R script
             r_exam_custom_params = self.current_config.get("rexams_params", {}).copy()
             
-            if rexams_title is not None:
-                r_exam_custom_params["exam-title"] = rexams_title
-            if rexams_course is not None:
-                r_exam_custom_params["course"] = rexams_course
-            if rexams_date is not None:
-                r_exam_custom_params["date"] = rexams_date
+            if exam_title is not None:
+                r_exam_custom_params["exam-title"] = exam_title
+            if exam_course is not None:
+                r_exam_custom_params["course"] = exam_course
+            if exam_date is not None:
+                r_exam_custom_params["date"] = exam_date
             
-            num_exam_models = int(r_exam_custom_params.get("n_models", 4))
+            # Use the generic exam_models parameter
+            r_exam_custom_params["n-models"] = str(exam_models)
 
             success = rexams_wrapper.generate_rexams_pdfs(
                 questions_input_dir=rexams_rmd_dir,
                 exams_output_dir=rexams_pdf_output_dir,
                 language_str=language,
-                num_models=num_exam_models,
+                num_models=exam_models,
                 custom_r_params=r_exam_custom_params 
             )
             
@@ -542,6 +553,30 @@ class AutoTestIAPipeline:
             else:
                 logging.error(f"R/exams PDF generation failed for Rmd files in {rexams_rmd_dir}. Output directory: {rexams_pdf_output_dir}")
                 print(f"Warning: R/exams PDF generation failed. Check logs. Rmd files are available at {os.path.abspath(rexams_rmd_dir)}")
+
+        if 'pexams' in output_formats:
+            pexams_output_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_pexams_output")
+            logging.info(f"Attempting to generate pexams PDF exams into {pexams_output_dir}")
+            os.makedirs(pexams_output_dir, exist_ok=True)
+            
+            # Convert autotestia questions to the portable pexams format
+            pexam_questions = pexams_utils.convert_autotestia_to_pexam(questions_for_conversion)
+
+            # Pass the generic exam parameters to the pexams wrapper
+            pexams_wrapper.generate_exams(
+                questions=pexam_questions,
+                output_dir=pexams_output_dir,
+                num_models=exam_models,
+                exam_title=exam_title if exam_title is not None else "Final Exam",
+                exam_course=exam_course,
+                exam_date=exam_date,
+                font_size=pexams_font_size,
+                columns=pexams_columns,
+                id_length=pexams_id_length,
+                lang=language,
+            )
+            conversion_performed = True
+            print(f"Pexams (Python/Marp) outputs generated in: {os.path.abspath(pexams_output_dir)}")
 
 
         if conversion_performed:

@@ -1,0 +1,290 @@
+/* @theme exam */
+@import 'default';
+
+/* --- FONT SELECTION (from extra.css) --- */
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Roboto:ital,wght@0,300;0,400;0,500;0,700&display=swap');
+
+/* --- A4 LAYOUT & TYPOGRAPHY (from a4.css) --- */
+/* Using !important to forcefully override Marp defaults, as seen in the working a4.css example */
+section {
+    width: 210mm;
+    height: 297mm;
+    padding: 15mm; /* Reduced padding */
+    font-family: 'Open Sans', sans-serif;
+    font-size: 10pt;
+}
+
+/* Keep code blocks left-aligned */
+section pre, section code {
+  text-align: left;
+  word-break: normal;
+}
+
+/* Global header */
+header {
+    left: 50px;
+    top: 25px;
+    font-size: 12px;
+    color: #888;
+}
+
+/* Global footer */
+footer {
+    left: 50px;
+    bottom: 25px;
+    font-size: 12px;
+    color: #888;
+}
+
+/* .exam-sheet-header {
+    height: 500px;
+    overflow: hidden;
+    margin: 0 0;
+    padding: 0 0;
+} */
+
+/* --- FONT SIZE CONTROL --- */
+section.text-10pt { font-size: 10pt; }
+section.text-11pt { font-size: 11pt; }
+section.text-12pt { font-size: 12pt; }
+
+
+/* --- HEADINGS (from extra.css) --- */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 400;
+  color: black; /* Force black color */
+  text-align: left; /* Override justify for headings */
+}
+
+h1 {
+    font-size: 14pt; /* Smaller */
+    margin-bottom: 2mm; /* Reduced space below */
+}
+
+h2 {
+  border-bottom: none; /* Removed underline */
+  font-size: 12pt; /* Smaller */
+}
+
+.exam-title {
+    font-size: 14pt;
+    margin-bottom: 2mm;
+    height: 20px;
+    overflow: hidden;
+}
+
+.exam-subtitle {
+    font-size: 12pt;
+    margin-bottom: 2mm;
+    height: 20px;
+    overflow: hidden;
+}
+
+/* --- ANSWER SHEET --- */
+section.answer-sheet-page {
+    display: block !important; /* Override section's flex behavior to allow absolute positioning within the container */
+    position: relative !important; /* Establish containing block for fiducials and inner absolute elements */
+}
+
+.answer-sheet-container {
+    width: 180mm !important; /* Fixed width */
+    max-width: 180mm !important; /* Fixed width */
+    border: none; /* No more debug border */
+    padding: 0 !important; /* Reduced padding to tighten margins */
+    position: relative !important; /* Anchor for absolutely positioned groups */
+    height: 220mm !important; /* Fixed height to contain the groups */
+    overflow: visible !important; /* Prevent content from breaking layout */
+}
+
+.exam-info {
+    text-align: left;
+    width: 100%;
+    margin-bottom: 8mm;
+    font-size: 10pt !important; /* Forced size */
+    color: #555;
+}
+.exam-info span {
+    margin-right: 5mm;
+    display: block; /* Stack vertically */
+}
+
+.student-info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10mm;
+    font-size: 12pt !important; /* Forced size */
+    align-items: flex-end; /* Align to bottom for border */
+    width: 100%;
+}
+
+.student-name {
+    flex-grow: 1;
+    margin-right: 10mm;
+    border-bottom: 1px solid #333;
+    padding-bottom: 25px;
+    white-space: nowrap;
+}
+
+.student-id-grid {
+    display: flex;
+    flex-direction: column; /* Put label above boxes */
+    align-items: flex-start;
+    flex-shrink: 0; /* Prevent the grid from shrinking */
+}
+
+.student-id-grid b {
+    margin-right: 0; /* No horizontal gap when stacked */
+    margin-bottom: 2mm; /* Space between label and boxes */
+}
+
+.id-box {
+    width: 5mm;   /* Smaller */
+    height: 7mm;  /* Smaller */
+    border: 1px solid black;
+    margin-right: 1mm;
+}
+
+/* Remove the grid system entirely */
+.answer-sheet-grid {
+   display: none;
+}
+
+.answer-group {
+    position: absolute !important; /* Use absolute positioning for fixed layout */
+    display: flex !important;
+    flex-direction: column !important;
+    border: none; /* No more debug border */
+    padding: 2mm;
+    overflow: visible !important;
+}
+
+.answer-header, .answer-row {
+    display: flex;
+    align-items: flex-start; /* Changed from 'center' to 'flex-start' for more stable alignment */
+    font-family: monospace;
+}
+
+.answer-header {
+    font-weight: bold;
+    margin-bottom: 2mm;
+    border-bottom: 1px solid #ccc;
+}
+
+.header-q-num, .question-number {
+    width: 25px;
+    font-size: 11pt; /* Smaller font for question numbers */
+    flex-shrink: 0; /* Prevent shrinking */
+    /* Vertically center text using line-height, a more reliable method */
+    height: 3.5mm;      /* Match the height of the option boxes */
+    line-height: 3.5mm; /* Set line-height equal to height to center text */
+    text-align: left;   /* Ensure text is aligned to the left */
+}
+
+.header-option {
+    width: 5mm; /* Smaller to match option-box */
+    text-align: center;
+    margin-right: 2mm;
+}
+
+.answer-row {
+    margin-bottom: 1mm; /* Tighter spacing */
+}
+
+.question-number {
+    font-weight: bold;
+}
+
+.options-container {
+    display: flex;
+}
+
+.option-box {
+    width: 5mm;  /* Smaller */
+    height: 3.5mm; /* Smaller */
+    border: 1px solid black;
+    margin-right: 1.5mm; /* Smaller */
+    text-align: center;
+    line-height: 3.5mm;
+    font-size: 7pt;
+    font-weight: bold;
+}
+
+/* --- FIDUCIAL MARKERS --- */
+.fiducial {
+    position: absolute;
+    width: 8mm;  /* Smaller */
+    height: 8mm; /* Smaller */
+}
+
+.fiducial::before, .fiducial::after {
+    content: '';
+    position: absolute;
+    background-color: black;
+}
+
+/* Vertical bar of the cross */
+.fiducial::before {
+    left: 50%;
+    width: 1mm;
+    height: 100%;
+    transform: translateX(-50%);
+}
+
+/* Horizontal bar of the cross */
+.fiducial::after {
+    top: 50%;
+    height: 1mm;
+    width: 100%;
+    transform: translateY(-50%);
+}
+
+.fiducial.top-left { top: 10mm; left: 10mm; }     /* Moved */
+.fiducial.top-right { top: 10mm; right: 10mm; }    /* Moved */
+.fiducial.bottom-left { bottom: 10mm; left: 10mm; } /* Moved */
+.fiducial.bottom-right { bottom: 10mm; right: 10mm; }/* Moved */
+
+/* --- QUESTION LAYOUT --- */
+.questions-container {
+    width: 100%;
+    height: 100%;
+}
+
+section.two-columns .questions-container {
+    column-count: 2;
+    column-gap: 15mm;
+}
+
+.question-wrapper {
+    break-inside: avoid-column;
+    padding-bottom: 0.5em; /* Reduced spacing */
+}
+
+.question-wrapper ul {
+    margin-top: 0.2em;
+    margin-bottom: 0.2em;
+    padding-left: 20px;
+}
+
+.question-wrapper ul li {
+    margin-bottom: 0.1em;
+}
+
+.question-wrapper ul li p {
+    margin: 0;
+}
+
+/* Image positioning helpers (from extra.css) */
+img[alt~="center"] {
+  display: block;
+  margin: 0 auto;
+}
+img[alt~="left"] {
+  float: left;
+  margin-right: 1em;
+  margin-bottom: 0.5em;
+}
+img[alt~="right"] {
+  float: right;
+  margin-left: 1em;
+  margin-bottom: 0.5em;
+}

@@ -53,7 +53,7 @@ def main():
                         help=f"Path for the intermediate Markdown file (default: {config.DEFAULT_OUTPUT_MD_FILE}). Ignored if resuming.")
     parser.add_argument("-f", "--formats",
                         nargs='+',
-                        choices=['moodle_xml', 'gift', 'wooclap', 'rexams', 'none'], # Added 'none'
+                        choices=['moodle_xml', 'gift', 'wooclap', 'rexams', 'pexams', 'none'], # Added 'pexams'
                         default=['moodle_xml', 'gift'],
                         help="List of final output formats. Use 'none' to only generate the intermediate Markdown (default: moodle_xml gift).")
     parser.add_argument("--provider",
@@ -79,9 +79,30 @@ def main():
     parser.add_argument("--extract-doc-images",
                          action='store_true',
                          help="[Experimental] Attempt to extract images from input documents (requires 'input_material').")
-    parser.add_argument("--language",
-                         default=config.DEFAULT_LANGUAGE,
-                         help=f"Language for the questions (default: {config.DEFAULT_LANGUAGE}).")
+
+    # --- Exam Layout Arguments (pexams and rexams) ---
+    parser.add_argument("--exam-models",
+                        type=int,
+                        default=4,
+                        help="Number of different exam models to generate (default: 4).")
+    parser.add_argument("--exam-font-size",
+                        type=str,
+                        default="11pt",
+                        choices=["10pt", "11pt", "12pt"],
+                        help="Font size for pexams PDF output (default: 11pt).")
+    parser.add_argument("--exam-columns",
+                        type=int,
+                        default=1,
+                        choices=[1, 2],
+                        help="Number of columns for questions in pexams PDF (default: 1).")
+    parser.add_argument("--exam-id-length",
+                        type=int,
+                        default=10,
+                        help="Number of boxes for the student ID grid (default: 10).")
+    parser.add_argument("--exam-language",
+                        default=config.DEFAULT_LANGUAGE,
+                        help=f"Language for the exam (default: {config.DEFAULT_LANGUAGE}).",
+                        choices=["en", "es", "ca", "de", "fr", "it", "nl", "pt", "ru", "zh", "ja"])
 
     # --- Shuffling and Selection Arguments ---
     parser.add_argument("--shuffle-questions",
@@ -110,18 +131,18 @@ def main():
                         help="Select a specific number of questions randomly from the final set (after potential question shuffling).")
 
     # --- R/exams Specific Arguments ---
-    parser.add_argument("--rexams-title",
+    parser.add_argument("--exam-title",
                         type=str,
                         default=None,
-                        help="Custom title for R/exams PDF output. If not set, uses R script's default.")
-    parser.add_argument("--rexams-course",
+                        help="Custom title for R/exams or pexams PDF output")
+    parser.add_argument("--exam-course",
                         type=str,
                         default=None,
-                        help="Custom course name for R/exams PDF output. If not set, uses R script's default.")
-    parser.add_argument("--rexams-date",
+                        help="Custom course name for R/exams or pexams PDF output")
+    parser.add_argument("--exam-date",
                         type=str,
                         default=None,
-                        help="Custom date for R/exams PDF output. If not set, uses R script's default.")
+                        help="Custom date for R/exams or pexams PDF output")
 
 
     # --- Logging Argument ---
@@ -197,7 +218,7 @@ def main():
         if args.use_llm_review != config.DEFAULT_LLM_REVIEW_ENABLED: ignored_args_resume.append("--use-llm-review")
         if args.skip_manual_review: ignored_args_resume.append("--skip-manual-review") # Manual review choice happens *before* resume point
         if args.extract_doc_images: ignored_args_resume.append("--extract-doc-images")
-        if args.language != config.DEFAULT_LANGUAGE: ignored_args_resume.append("--language")
+        if args.exam_language != config.DEFAULT_LANGUAGE: ignored_args_resume.append("--exam-language")
         if args.generator_instructions: ignored_args_resume.append("--generator-instructions")
         if args.reviewer_instructions: ignored_args_resume.append("--reviewer-instructions")
         if args.evaluate_initial: ignored_args_resume.append("--evaluate-initial")
@@ -326,7 +347,7 @@ def main():
             num_questions=args.num_questions,        # Used unless resuming
             extract_images_from_doc=args.extract_doc_images, # Used only if input_material provided
             skip_manual_review=args.skip_manual_review, # Used unless resuming
-            language=args.language,                   # Used unless resuming
+            language=args.exam_language,                   # Used unless resuming
             use_llm_review=effective_llm_review if mode != "resume" else None, # Pass LLM review flag only if generating
             # Pass custom instructions (will be None if not provided)
             generator_instructions=args.generator_instructions if mode != "resume" else None,
@@ -339,10 +360,15 @@ def main():
             shuffle_questions_seed=shuffle_questions_seed,
             shuffle_answers_seed=shuffle_answers_seed,
             num_final_questions=num_final_questions,
-            # R/exams specific
-            rexams_title=args.rexams_title,
-            rexams_course=args.rexams_course,
-            rexams_date=args.rexams_date
+            # R/exams and Pexams specific
+            exam_title=args.exam_title,
+            exam_course=args.exam_course,
+            exam_date=args.exam_date,
+            exam_models=args.exam_models,
+            # Pexams specific
+            pexams_font_size=args.exam_font_size,
+            pexams_columns=args.exam_columns,
+            pexams_id_length=args.exam_id_length
         )
     except Exception as e:
         logging.error(f"Pipeline execution failed: {e}", exc_info=True) # Log with traceback

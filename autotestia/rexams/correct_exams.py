@@ -310,7 +310,7 @@ def main():
     
     # --- R Script and Language ---
     parser.add_argument("--r-executable", type=str, default=None, help="Path to Rscript. Tries to find automatically if None.")
-    parser.add_argument("--language", type=str, default="en", choices=["en", "es", "ca", "de", "fr"], help="Language for nops_eval.")
+    parser.add_argument("--language", type=str, default="en", choices=["en", "es", "ca", "de", "fr", "it", "nl", "pt", "ru", "zh", "ja"], help="Language for nops_eval.")
     
     # --- Scan and Evaluation Parameters ---
     parser.add_argument("--scan-thresholds", type=str, default="0.04,0.42", help="Scan thresholds for nops_scan (lower,upper).")

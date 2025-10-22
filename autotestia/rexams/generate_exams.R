@@ -162,9 +162,9 @@ generate_exam_set <- function() {
     twocolumn = FALSE,
     fonts = NULL,
     header = exam_header,
-    encoding = "UTF-8",
-    blank = 1,
-    keep_tex = TRUE,
+    # encoding = "UTF-8",
+    # blank = 1,
+    # keep_tex = TRUE,
     texdir = output_dir_path,
   )
   
