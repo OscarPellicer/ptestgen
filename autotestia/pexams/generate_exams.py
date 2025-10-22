@@ -170,9 +170,10 @@ def _generate_answer_sheet_markdown(
 
         # Apply positioning directly to the answer-group div, removing the wrapper
         # Using !important to ensure inline styles override any CSS
+        # Use CSS transform translate for robust positioning in Marp/Chromium
         group_html = (
             f'<div class="answer-group" '
-            f'style="position: absolute; top: {pos_top}mm !important; left: {pos_left}mm !important;">'
+            f'style="position: absolute; top: 0; left: 0; transform: translate({pos_left}mm, {pos_top}mm);">'
         )
         group_html += header_row
 
