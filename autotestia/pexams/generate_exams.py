@@ -305,7 +305,7 @@ def generate_exams(
 
             if test_mode:
                 logging.info(f"Test mode enabled: Generating simulated scan for model {i}")
-                _generate_simulated_scan(pdf_filepath, model_questions, output_dir, i)
+                _generate_simulated_scan(pdf_filepath, model_questions, output_dir, i, id_length)
 
         except PlaywrightError as e:
             logging.error(f"Playwright failed to generate PDF for model {i}: {e}")
@@ -319,10 +319,62 @@ def generate_exams(
                 os.remove(html_filepath)
                 logging.info(f"Removed temporary HTML file: {html_filepath}")
 
-def _generate_simulated_scan(original_pdf_path: str, questions: List[PexamQuestion], output_dir: str, model_num: int):
+def _find_fiducial_markers_for_sim(image):
+    # This is a simplified copy from correct_exams.py for test generation
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 97, 255, cv2.THRESH_BINARY_INV)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    page_height, page_width = image.shape[:2]
+    
+    corner_regions = {
+        "tl": (0, page_width * 0.2, 0, page_height * 0.2),
+        "tr": (page_width * 0.8, page_width, 0, page_height * 0.2),
+        "bl": (0, page_width * 0.2, page_height * 0.8, page_height),
+        "br": (page_width * 0.8, page_width, page_height * 0.8, page_height),
+    }
+    
+    corner_candidates = {"tl": [], "tr": [], "bl": [], "br": []}
+    ref_dim = 8 * (300 / 25.4)
+    min_area, max_area = (ref_dim ** 2) * 0.2, (ref_dim ** 2) * 1.5
+
+    for c in contours:
+        area = cv2.contourArea(c)
+        if not (min_area < area < max_area): continue
+        x, y, w, h = cv2.boundingRect(c)
+        aspect_ratio = w / float(h) if h > 0 else 0
+        if not (0.4 < aspect_ratio < 2.5): continue
+        hull = cv2.convexHull(c)
+        if hull.shape[0] < 3: continue
+        hull_area = cv2.contourArea(hull)
+        solidity = area / float(hull_area) if hull_area > 0 else 0
+        if solidity > 0.6: continue
+        M = cv2.moments(c)
+        if M["m00"] == 0: continue
+        cx, cy = int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
+
+        for name, (x_min, x_max, y_min, y_max) in corner_regions.items():
+            if (x_min < cx < x_max) and (y_min < cy < y_max):
+                corner_candidates[name].append((cx, cy))
+                break
+    
+    final_corners = {}
+    page_corners = {"tl": (0, 0), "tr": (page_width, 0), "bl": (0, page_height), "br": (page_width, page_height)}
+    
+    for name, candidates in corner_candidates.items():
+        if not candidates: return None
+        px, py = page_corners[name]
+        final_corners[name] = min(candidates, key=lambda p: np.sqrt((p[0] - px)**2 + (p[1] - py)**2))
+
+    tl, tr, bl, br = final_corners["tl"], final_corners["tr"], final_corners["bl"], final_corners["br"]
+    if not all([tl, tr, bl, br]): return None
+    return np.array([tl, tr, br, bl], dtype="float32")
+
+
+def _generate_simulated_scan(original_pdf_path: str, questions: List[PexamQuestion], output_dir: str, model_num: int, id_length: int):
     """
-    Takes the first page of a PDF, converts it to an image,
-    and adds fake answers, name, ID, and signature to simulate a scan.
+    Takes the first page of a PDF, converts it to an image, finds the fiducial markers,
+    applies a perspective transform to get a perfect top-down view, and then adds
+    fake answers, name, ID, and signature to simulate a realistic, aligned scan.
     """
     try:
         from pdf2image import convert_from_path
@@ -334,40 +386,34 @@ def _generate_simulated_scan(original_pdf_path: str, questions: List[PexamQuesti
     scan_output_dir = os.path.join(output_dir, "simulated_scans")
     os.makedirs(scan_output_dir, exist_ok=True)
 
-    # 1. Convert first page of PDF to an image
     try:
         images = convert_from_path(original_pdf_path, first_page=1, last_page=1, dpi=300)
         if not images: return
-        page_image = images[0]
-        img_np = np.array(page_image)
-        img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+        img_cv = cv2.cvtColor(np.array(images[0]), cv2.COLOR_RGB2BGR)
     except Exception as e:
         logging.error(f"Failed to convert PDF to image for simulation: {e}")
         return
 
-    # Define coordinate transformation constants
-    DPI = 300
-    MM_PER_INCH = 25.45
-    PX_PER_MM = DPI / MM_PER_INCH
-    MARGIN_MM = 15 # The margin used when generating the PDF
+    # Find fiducial markers in the scanned image
+    marker_corners = _find_fiducial_markers_for_sim(img_cv)
+    if marker_corners is None:
+        logging.error("Could not find fiducial markers in the generated PDF for simulation. Skipping.")
+        return
+
+    # Use the same high-resolution scale as the correction process
+    PX_PER_MM = 10.0
     
-    # Add a small adjustment to shift content down and to the right
-    ADJUSTMENT_MM = 2 
+    # Apply perspective transform to get a perfect, aligned image
+    from .correct_exams import _apply_perspective_transform
+    warped_sheet = _apply_perspective_transform(img_cv, marker_corners, PX_PER_MM)
 
-    offset_x = int((MARGIN_MM + ADJUSTMENT_MM) * PX_PER_MM)
-    offset_y = int((MARGIN_MM + ADJUSTMENT_MM) * PX_PER_MM)
-
-    # 2. Get layout data
-    layout_data = layout.get_answer_sheet_layout(len(questions))
-
-    # 3. Add fake data
+    # --- Draw Fake Data onto the warped sheet ---
+    layout_data = layout.get_answer_sheet_layout(len(questions), id_length)
+    
     # Fake Name
     name_box = layout_data.student_name_box
-    name_pos = (
-        int(name_box.top_left[0] * PX_PER_MM) + offset_x + 10,
-        int(name_box.center[1] * PX_PER_MM) + offset_y + 15
-    )
-    cv2.putText(img_cv, fake.name(), name_pos, cv2.FONT_HERSHEY_SIMPLEX, 2, (20, 20, 20), 4)
+    name_pos = (int(name_box.top_left[0] * PX_PER_MM) + 10, int(name_box.center[1] * PX_PER_MM) + 15)
+    cv2.putText(warped_sheet, fake.name(), name_pos, cv2.FONT_HERSHEY_SIMPLEX, 2, (20, 20, 20), 4)
 
     # Fake ID
     fake_id = "".join(random.choices("0123456789", k=len(layout_data.student_id_boxes)))
@@ -376,46 +422,38 @@ def _generate_simulated_scan(original_pdf_path: str, questions: List[PexamQuesti
         font_scale = 1.8
         font_thickness = 4
         (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
-        
-        center_x_px = int(box.center[0] * PX_PER_MM) + offset_x
-        center_y_px = int(box.center[1] * PX_PER_MM) + offset_y
-        
+        center_x_px = int(box.center[0] * PX_PER_MM)
+        center_y_px = int(box.center[1] * PX_PER_MM)
         id_pos = (center_x_px - text_width // 2, center_y_px + text_height // 2)
-        cv2.putText(img_cv, text, id_pos, cv2.FONT_HERSHEY_SIMPLEX, font_scale, (20, 20, 20), font_thickness)
+        cv2.putText(warped_sheet, text, id_pos, cv2.FONT_HERSHEY_SIMPLEX, font_scale, (20, 20, 20), font_thickness)
 
     # Fake Signature (scribble)
     sig_box = layout_data.student_signature_box
-    center_y = int(sig_box.center[1] * PX_PER_MM) + offset_y
-    start_x = int(sig_box.top_left[0] * PX_PER_MM) + offset_x + 15
-    end_x = int(sig_box.bottom_right[0] * PX_PER_MM) + offset_x - 15
+    center_y = int(sig_box.center[1] * PX_PER_MM)
+    start_x = int(sig_box.top_left[0] * PX_PER_MM) + 15
+    end_x = int(sig_box.bottom_right[0] * PX_PER_MM) - 15
     for x in range(start_x, end_x, 10):
         y_offset = random.randint(-20, 20)
-        cv2.line(img_cv, (x, center_y + y_offset), (x+10, center_y - y_offset), (30, 30, 30), 4)
+        cv2.line(warped_sheet, (x, center_y + y_offset), (x+10, center_y - y_offset), (30, 30, 30), 4)
 
-    # Fake Answers (more realistic filling)
+    # Fake Answers
     for q_id, options in layout_data.answer_boxes.items():
         if random.random() > 0.1: # 10% chance to leave blank
             chosen_option = random.choice(list(options.values()))
+            tl_x = int(chosen_option.top_left[0] * PX_PER_MM)
+            tl_y = int(chosen_option.top_left[1] * PX_PER_MM)
+            br_x = int(chosen_option.bottom_right[0] * PX_PER_MM)
+            br_y = int(chosen_option.bottom_right[1] * PX_PER_MM)
             
-            tl_x_mm, tl_y_mm = chosen_option.top_left
-            br_x_mm, br_y_mm = chosen_option.bottom_right
-
-            # Calculate pixel coordinates directly from the answer box layout, adding the page margin offset.
-            tl_x = int(tl_x_mm * PX_PER_MM) + offset_x
-            tl_y = int(tl_y_mm * PX_PER_MM) + offset_y
-            br_x = int(br_x_mm * PX_PER_MM) + offset_x
-            br_y = int(br_y_mm * PX_PER_MM) + offset_y
-
-            # Create a distorted, hand-drawn-like fill
             points = np.array([
                 [tl_x + random.randint(1, 4), tl_y + random.randint(1, 4)],
                 [br_x - random.randint(1, 4), tl_y + random.randint(1, 4)],
                 [br_x - random.randint(1, 4), br_y - random.randint(1, 4)],
                 [tl_x + random.randint(1, 4), br_y - random.randint(1, 4)]
             ])
-            cv2.fillPoly(img_cv, [points], (10, 10, 10))
+            cv2.fillPoly(warped_sheet, [points], (10, 10, 10))
 
-    # 4. Save the simulated scan
+    # Save the final simulated scan
     output_path = os.path.join(scan_output_dir, f"simulated_scan_model_{model_num}.png")
-    cv2.imwrite(output_path, img_cv)
+    cv2.imwrite(output_path, warped_sheet)
     logging.info(f"Saved simulated scan to {output_path}")

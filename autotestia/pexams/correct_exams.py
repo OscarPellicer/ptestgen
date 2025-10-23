@@ -350,8 +350,9 @@ def correct_exams(input_path: str, solutions: Dict[int, int], output_dir: str) -
                 font_scale = 1.5
                 font_thickness = 3
                 (text_w, text_h), _ = cv2.getTextSize(char, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
+                # Position the text centered horizontally and below the box
                 text_x = tl_x + (br_x - tl_x - text_w) // 2
-                text_y = br_y - (br_y - tl_y - text_h) // 2
+                text_y = br_y + text_h + 5 # 5 pixels padding below
                 cv2.putText(annotated_image, char, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, blue_color, font_thickness)
                 
         # --- Draw Answer Annotations (Green/Red) ---
