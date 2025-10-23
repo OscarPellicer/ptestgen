@@ -1,14 +1,15 @@
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 import random
 import os
 import markdown
+from pathlib import Path
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
 from faker import Faker
 import cv2
 import numpy as np
 
-from .schemas import PexamQuestion
+from .schemas import PexamQuestion, PexamExam
 from . import layout
 from .translations import LANG_STRINGS
 
@@ -173,7 +174,7 @@ def _generate_questions_markdown(
 
 
 def generate_exams(
-    questions: List[PexamQuestion], 
+    questions: Union[List[PexamQuestion], str], 
     output_dir: str, 
     num_models: int = 4, 
     exam_title: str = "Final Exam",
@@ -188,8 +189,25 @@ def generate_exams(
 ):
     """
     Generates exam PDFs from a list of questions using Playwright.
+    The questions can be provided as a list of PexamQuestion objects or a path to a JSON file.
     """
-    logging.info(f"Starting pexams PDF generation for {len(questions)} questions.")
+    logging.info(f"Starting pexams PDF generation.")
+    
+    if isinstance(questions, str):
+        if not os.path.exists(questions):
+            logging.error(f"Questions JSON file not found at: {questions}")
+            return
+        logging.info(f"Loading questions from: {questions}")
+        try:
+            loaded_exam = PexamExam.model_validate_json(Path(questions).read_text(encoding="utf-8"))
+        except Exception as e:
+            logging.error(f"Failed to parse questions JSON file: {e}")
+            return
+        questions_list = loaded_exam.questions
+    else:
+        questions_list = questions
+
+    logging.info(f"Loaded {len(questions_list)} questions.")
     logging.info(f"Exams will be output to: {output_dir}")
 
     if not os.path.isdir(output_dir):
@@ -208,12 +226,19 @@ def generate_exams(
     column_class = column_classes.get(columns, "")
 
     for i in range(1, num_models + 1):
-        model_questions = list(questions)
+        model_questions = list(questions_list)
         random.shuffle(model_questions)
         
         # Re-number questions for this exam model
         for q_idx, q in enumerate(model_questions, 1):
             q.id = q_idx
+
+        # Save the questions for this model to a JSON file
+        model_exam = PexamExam(questions=model_questions)
+        questions_json_path = os.path.join(output_dir, f"exam_model_{i}_questions.json")
+        with open(questions_json_path, "w", encoding="utf-8") as f:
+            f.write(model_exam.model_dump_json(indent=4))
+        logging.info(f"Saved questions for model {i} to: {questions_json_path}")
 
         answer_sheet_html = _generate_answer_sheet_html(
             model_questions, 

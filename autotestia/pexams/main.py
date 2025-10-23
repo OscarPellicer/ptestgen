@@ -2,8 +2,10 @@ import argparse
 import logging
 import json
 import os
+from pathlib import Path
 
-from . import correct_exams, generate_exams
+from . import correct_exams
+from . import generate_exams
 from .schemas import PexamExam, PexamQuestion
 from pydantic import ValidationError
 
@@ -92,12 +94,10 @@ def main():
             return
             
         try:
-            with open(args.solutions_json, 'r') as f:
-                solutions_raw = json.load(f)
-                # Convert keys to int for consistency
-                solutions = {int(k): int(v) for k, v in solutions_raw.items()}
-        except (json.JSONDecodeError, ValueError) as e:
-            logging.error(f"Failed to parse solutions JSON file: {e}")
+            exam = PexamExam.model_validate_json(Path(args.solutions_json).read_text(encoding="utf-8"))
+            solutions = {q.id: q.correct_answer_index for q in exam.questions if q.correct_answer_index is not None}
+        except (ValidationError, json.JSONDecodeError, ValueError) as e:
+            logging.error(f"Failed to parse or process solutions JSON file: {e}")
             return
 
         os.makedirs(args.output_dir, exist_ok=True)
@@ -114,7 +114,7 @@ def main():
             return
         
         try:
-            exam = PexamExam.parse_file(args.questions_json)
+            exam = PexamExam.model_validate_json(Path(args.questions_json).read_text(encoding="utf-8"))
             questions = exam.questions
         except ValidationError as e:
             logging.error(f"Failed to validate questions JSON file: {e}")

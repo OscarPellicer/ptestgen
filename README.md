@@ -38,6 +38,8 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
 
 ## Setup
 
+The library has been tested on Python 3.11.
+
 1.  Clone the repository:
     ```bash
     git clone https://github.com/OscarPellicer/AutoTestIA.git

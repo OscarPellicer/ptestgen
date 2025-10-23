@@ -8,6 +8,8 @@ Pexams is a library for generating beautiful exam sheets from simple data struct
 
 ## Installation
 
+The library has been tested on Python 3.11
+
 1.  **Install the library**
 
     For development, you can install it in editable mode:
