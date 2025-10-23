@@ -21,7 +21,7 @@ def convert_autotestia_to_pexam(autotestia_questions: List[AutotestiaQuestion]) 
             id=q.id,
             text=q.text,
             options=options,
-            image_path=q.image_reference  # Map image_reference to image_path
+            image_source=q.image_reference  # Map image_reference to image_source
         )
         pexam_questions.append(pexam_q)
         

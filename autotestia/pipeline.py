@@ -91,9 +91,10 @@ class AutoTestIAPipeline:
             exam_course: Optional[str] = None,
             exam_date: Optional[str] = None,
             exam_models: int = 4,
-            pexams_font_size: str = "11pt",
+            font_size: str = "11pt",
             pexams_columns: int = 1,
-            pexams_id_length: int = 10
+            pexams_id_length: int = 10,
+            pexams_test_mode: bool = False
             ) -> str:
         """
         Runs the AutoTestIA pipeline.
@@ -125,9 +126,10 @@ class AutoTestIAPipeline:
             exam_course: Custom course name for R/exams or pexams PDF output.
             exam_date: Custom date for R/exams or pexams PDF output.
             exam_models: Number of different exam models to generate.
-            pexams_font_size: Font size for pexams PDF output.
+            font_size: Font size for pexams PDF output.
             pexams_columns: Number of columns for questions in pexams PDF.
             pexams_id_length: Number of boxes for the student ID grid.
+            pexams_test_mode: Generate simulated scans for testing pexams correction.
 
         Returns:
             The path to the intermediate Markdown file.
@@ -570,10 +572,11 @@ class AutoTestIAPipeline:
                 exam_title=exam_title if exam_title is not None else "Final Exam",
                 exam_course=exam_course,
                 exam_date=exam_date,
-                font_size=pexams_font_size,
+                font_size=font_size,
                 columns=pexams_columns,
                 id_length=pexams_id_length,
                 lang=language,
+                test_mode=pexams_test_mode
             )
             conversion_performed = True
             print(f"Pexams (Python/Marp) outputs generated in: {os.path.abspath(pexams_output_dir)}")

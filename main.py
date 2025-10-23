@@ -88,8 +88,7 @@ def main():
     parser.add_argument("--exam-font-size",
                         type=str,
                         default="11pt",
-                        choices=["10pt", "11pt", "12pt"],
-                        help="Font size for pexams PDF output (default: 11pt).")
+                        help="Font size for pexams PDF output (e.g., '10pt', '12px').")
     parser.add_argument("--exam-columns",
                         type=int,
                         default=1,
@@ -143,6 +142,7 @@ def main():
                         type=str,
                         default=None,
                         help="Custom date for R/exams or pexams PDF output")
+    parser.add_argument("--test-mode", action="store_true", help="[PEXAMS] Generate simulated scans with fake answers for testing.")
 
 
     # --- Logging Argument ---
@@ -366,9 +366,10 @@ def main():
             exam_date=args.exam_date,
             exam_models=args.exam_models,
             # Pexams specific
-            pexams_font_size=args.exam_font_size,
+            font_size=args.exam_font_size,
             pexams_columns=args.exam_columns,
-            pexams_id_length=args.exam_id_length
+            pexams_id_length=args.exam_id_length,
+            pexams_test_mode=args.test_mode
         )
     except Exception as e:
         logging.error(f"Pipeline execution failed: {e}", exc_info=True) # Log with traceback

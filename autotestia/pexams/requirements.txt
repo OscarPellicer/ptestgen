@@ -2,7 +2,13 @@ opencv-python
 numpy
 pdf2image
 pydantic
-# For pdf2image to work, you also need to install poppler.
+playwright
+Markdown
+easyocr
+torch
+torchvision
+Faker
+# For pdf2image to work, you may also need to install poppler.
 # On Windows: conda install -c conda-forge poppler
 # On MacOS: brew install poppler
 # On Debian/Ubuntu: sudo apt-get install poppler-utils

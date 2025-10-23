@@ -1,90 +1,18 @@
-import subprocess
-import os
 import logging
 from typing import List, Optional
 import random
-import shutil
-import sys
+import os
+import markdown
+from playwright.sync_api import sync_playwright, Error as PlaywrightError
+from faker import Faker
+import cv2
+import numpy as np
 
 from .schemas import PexamQuestion
+from . import layout
+from .translations import LANG_STRINGS
 
-# Define a cache directory for pexams tools
-CACHE_DIR = os.path.join(os.path.expanduser("~"), ".pexams_cache")
-MARP_INSTALL_DIR = os.path.join(CACHE_DIR, "marp")
-MARP_PACKAGE_JSON = os.path.join(MARP_INSTALL_DIR, "package.json")
-
-def _get_marp_command() -> List[str]:
-    """
-    Finds the best available command for running Marp, installing it locally if needed.
-    Priority: Global marp > VS Code Extension > Cached local marp > Install local marp > npx fallback.
-    """
-    # 1. Prefer globally installed 'marp'
-    if shutil.which("marp"):
-        logging.info("Using globally installed 'marp'.")
-        return ["marp"]
-
-    # 2. Check for marp from VS Code extension
-    try:
-        home = os.path.expanduser("~")
-        vscode_extensions_path = os.path.join(home, ".vscode", "extensions")
-        if os.path.isdir(vscode_extensions_path):
-            for item in os.listdir(vscode_extensions_path):
-                if item.lower().startswith("marp-team.marp-vscode"):
-                    marp_executable_name = "marp.cmd" if sys.platform == "win32" else "marp"
-                    potential_path = os.path.join(vscode_extensions_path, item, "node_modules", ".bin", marp_executable_name)
-                    if os.path.exists(potential_path):
-                        logging.info(f"Using 'marp' from VS Code extension: {potential_path}")
-                        return [potential_path]
-    except Exception as e:
-        logging.warning(f"Could not check for VS Code marp extension: {e}")
-
-
-    # 3. Check for our locally managed 'marp'
-    marp_executable_name = "marp.cmd" if sys.platform == "win32" else "marp"
-    local_marp_path = os.path.join(MARP_INSTALL_DIR, "node_modules", ".bin", marp_executable_name)
-    if os.path.exists(local_marp_path):
-        logging.info(f"Using locally cached 'marp' from {MARP_INSTALL_DIR}.")
-        return [local_marp_path]
-
-    # 4. If not found, try to install it locally for future use
-    logging.info("Locally cached 'marp' not found. Attempting one-time installation...")
-    if shutil.which("npm"):
-        os.makedirs(MARP_INSTALL_DIR, exist_ok=True)
-        # Create a dummy package.json to manage the dependency
-        with open(MARP_PACKAGE_JSON, "w") as f:
-            f.write('{"name": "pexams-marp-dependency"}')
-            
-        logging.info(f"Running 'npm install @marp-team/marp-cli' in {MARP_INSTALL_DIR}... This may take a moment.")
-        try:
-            is_windows = sys.platform == "win32"
-            subprocess.run(
-                ["npm", "install", "@marp-team/marp-cli"],
-                cwd=MARP_INSTALL_DIR,
-                check=True,
-                capture_output=True,
-                text=True,
-                shell=is_windows # npm.cmd on Windows
-            )
-            logging.info("Successfully installed marp-cli to local cache.")
-            if os.path.exists(local_marp_path):
-                return [local_marp_path]
-            else:
-                logging.error("Installation seemed successful, but the marp executable was not found where expected.")
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Failed to install marp-cli locally: {e.stderr}")
-        except Exception as e:
-            logging.error(f"An unexpected error occurred during marp-cli installation: {e}")
-
-    # 5. Fallback to npx if installation failed or npm wasn't found
-    if shutil.which("npx"):
-        logging.warning("Falling back to 'npx' for this run. This might be slow. For better performance, ensure 'npm' is installed and working.")
-        return ["npx", "@marp-team/marp-cli@latest"]
-        
-    # 6. If nothing works
-    return []
-
-
-def _generate_answer_sheet_markdown(
+def _generate_answer_sheet_html(
     questions: List[PexamQuestion],
     exam_model: int,
     exam_title: str,
@@ -95,165 +23,152 @@ def _generate_answer_sheet_markdown(
 ) -> str:
     """Generates the pure HTML for the answer sheet with absolutely positioned elements."""
 
-    lang_strings = {
-        "en": {"name": "Student name", "id": "Student ID", "title": "Answer sheet - Model", "course": "Course", "date": "Date"},
-        "es": {"name": "Nombre alumno", "id": "Nº identificación", "title": "Hoja de respuestas - Modelo", "course": "Curso", "date": "Fecha"},
-        "ca": {"name": "Nom alumne", "id": "Nº identificació", "title": "Full de respostes - Model", "course": "Curs", "date": "Data"},
-        "de": {"name": "Name des Schülers", "id": "Schüler-ID", "title": "Antwortblatt - Modell", "course": "Kurs", "date": "Datum"},
-        "fr": {"name": "Nom de l'étudiant", "id": "ID de l'étudiant", "title": "Feuille de réponses - Modèle", "course": "Cours", "date": "Date"},
-        "it": {"name": "Nome dell'alunno", "id": "ID dell'alunno", "title": "Foglio di risposte - Modello", "course": "Corso", "date": "Data"},
-        "nl": {"name": "Naam van de leerling", "id": "Leerling-ID", "title": "Antwoordblad - Model", "course": "Cursus", "date": "Datum"},
-        "pt": {"name": "Nome do aluno", "id": "ID do aluno", "title": "Folha de respostas - Modelo", "course": "Curso", "date": "Data"},
-        "ru": {"name": "Имя студента", "id": "ID студента", "title": "Бланк ответов - Модель", "course": "Курс", "date": "Дата"},
-        "zh": {"name": "学生姓名", "id": "学生ID", "title": "答卷 - 模型", "course": "课程", "date": "日期"},
-        "ja": {"name": "学生名", "id": "学生ID", "title": "答卷 - 模型", "course": "课程", "date": "日期"},
-    }
-    selected_lang = lang_strings.get(lang, lang_strings["en"])
+    selected_lang = LANG_STRINGS.get(lang, LANG_STRINGS["en"])
+    
+    layout_data = layout.get_answer_sheet_layout(len(questions), id_length)
+    html_elements = []
 
+    # --- Header Elements ---
+    style_title = f"position: absolute; left: {layout_data.exam_title[0]}mm; top: {layout_data.exam_title[1]}mm;"
+    html_elements.append(f'<h1 class="exam-title" style="{style_title}">{exam_title}</h1>')
+
+    style_subtitle = f"position: absolute; left: {layout_data.exam_subtitle[0]}mm; top: {layout_data.exam_subtitle[1]}mm;"
+    html_elements.append(f'<h2 class="exam-subtitle" style="{style_subtitle}">{selected_lang["title"]} {exam_model}</h2>')
+    
     exam_info_parts = []
-    if exam_course:
-        exam_info_parts.append(f"<span>{selected_lang['course']}: {exam_course}</span>")
-    if exam_date:
-        exam_info_parts.append(f"<span>{selected_lang['date']}: {exam_date}</span>")
+    if exam_course: exam_info_parts.append(f"<span>{selected_lang['course']}: {exam_course}</span>")
+    if exam_date: exam_info_parts.append(f"<span>{selected_lang['date']}: {exam_date}</span>")
     exam_info_html = "\n".join(exam_info_parts)
+    style_info = f"position: absolute; left: {layout_data.exam_info[0]}mm; top: {layout_data.exam_info[1]}mm;"
+    html_elements.append(f'<div class="exam-info" style="{style_info}">{exam_info_html}</div>')
 
-    header = f"""
-<!-- _class: answer-sheet-page -->
-<div class="fiducial top-left"></div>
-<div class="fiducial top-right"></div>
-<div class="fiducial bottom-left"></div>
-<div class="fiducial bottom-right"></div>
+    # --- Student Info ---
+    style_name_label = f"position: absolute; left: {layout_data.student_name_label[0]}mm; top: {layout_data.student_name_label[1]}mm;"
+    html_elements.append(f'<div class="student-name-label" style="{style_name_label}"><b>{selected_lang["name"]}</b></div>')
+    
+    snb_coords = layout_data.student_name_box
+    x_snb, y_snb = snb_coords.top_left
+    w_snb = snb_coords.bottom_right[0] - x_snb
+    h_snb = snb_coords.bottom_right[1] - y_snb
+    style_name_box = f"position: absolute; left: {x_snb}mm; top: {y_snb}mm; width: {w_snb}mm; height: {h_snb}mm;"
+    html_elements.append(f'<div class="student-name-box" style="{style_name_box}"></div>')
 
-<h1 class="exam-title">{exam_title}</h1>
-<h2 class="exam-subtitle">{selected_lang['title']} {exam_model}</h2>
+    style_id_label = f"position: absolute; left: {layout_data.student_id_label[0]}mm; top: {layout_data.student_id_label[1]}mm;"
+    html_elements.append(f'<div class="student-id-label" style="{style_id_label}"><b>{selected_lang["id"]}</b></div>')
+    
+    for id_box_coords in layout_data.student_id_boxes:
+        x, y = id_box_coords.top_left
+        w = id_box_coords.bottom_right[0] - x
+        h = id_box_coords.bottom_right[1] - y
+        style = f"position: absolute; left: {x}mm; top: {y}mm; width: {w}mm; height: {h}mm;"
+        html_elements.append(f'<div class="id-box" style="{style}"></div>')
 
-<div class="exam-info">
-{exam_info_html}
-</div>
+    # --- Signature ---
+    style_sig_label = f"position: absolute; left: {layout_data.student_signature_label[0]}mm; top: {layout_data.student_signature_label[1]}mm;"
+    html_elements.append(f'<div class="student-signature-label" style="{style_sig_label}"><b>{selected_lang["signature"]}</b></div>')
 
-<div class="student-info">
-    <div class="student-name"><b>{selected_lang['name']}</b></div>
-    <div class="student-id-grid">
-        <b>{selected_lang['id']}</b>
-        {'<div class="id-box"></div>' * id_length}
+    ssb_coords = layout_data.student_signature_box
+    x_ssb, y_ssb = ssb_coords.top_left
+    w_ssb = ssb_coords.bottom_right[0] - x_ssb
+    h_ssb = ssb_coords.bottom_right[1] - y_ssb
+    style_sig_box = f"position: absolute; left: {x_ssb}mm; top: {y_ssb}mm; width: {w_ssb}mm; height: {h_ssb}mm;"
+    html_elements.append(f'<div class="student-signature-box" style="{style_sig_box}"></div>')
+
+    # --- Instructions ---
+    example_correct_html = '<div class="example-box correct"></div>'
+    example_incorrect_html = '<div class="example-box incorrect"><div class="incorrect-line"></div></div>'
+
+    instructions_html = f"""
+    <div class="instructions-box">
+        <h4>{selected_lang.get('instructions_title', 'Instructions')}</h4>
+        <ul>
+            <li>{selected_lang.get('instructions_id', '')}</li>
+            <li>{selected_lang.get('instructions_answers', '')}</li>
+            <li class="instruction-example-container">
+                <div class="instruction-example">
+                    <span>{selected_lang.get('instructions_example_correct', '')}</span>
+                    {example_correct_html}
+                </div>
+                <div class="instruction-example">
+                    <span>{selected_lang.get('instructions_example_incorrect', '')}</span>
+                    {example_incorrect_html}
+                </div>
+            </li>
+            <li>{selected_lang.get('instructions_corrections', '')}</li>
+        </ul>
     </div>
+    """
+    style_instructions = f"position: absolute; left: {layout_data.instructions[0]}mm; top: {layout_data.instructions[1]}mm;"
+    html_elements.append(f'<div style="{style_instructions}">{instructions_html}</div>')
+
+    # --- Answer Grid Elements ---
+    for group_index, labels in layout_data.header_labels.items():
+        for i, (x, y) in labels.items():
+            label = chr(ord("A") + i)
+            style = (f"position: absolute; left: {x}mm; top: {y}mm; "
+                     f"width: {layout.HEADER_OPTION_LABEL_WIDTH}mm; height: {layout.HEADER_ROW_HEIGHT}mm;")
+            html_elements.append(f'<div class="header-option" style="{style}">{label}</div>')
+
+    for q_id, (x, y) in layout_data.question_numbers.items():
+        style = (f"position: absolute; left: {x}mm; top: {y}mm; "
+                 f"width: {layout.QUESTION_NUMBER_WIDTH}mm; height: {layout.ANSWER_ROW_HEIGHT}mm;")
+        html_elements.append(f'<div class="question-number" style="{style}">{q_id}</div>')
+
+    for q_id, options in layout_data.answer_boxes.items():
+        for opt_idx, coords in options.items():
+            x, y = coords.top_left
+            style = (f"position: absolute; left: {x}mm; top: {y}mm; "
+                     f"width: {layout.OPTION_BOX_WIDTH}mm; height: {layout.OPTION_BOX_HEIGHT}mm;")
+            html_elements.append(f'<div class="option-box" style="{style}"></div>')
+            
+    all_elements_html = "\n".join(html_elements)
+
+    return f"""
+<div class="page-container answer-sheet-page">
+    <div class="fiducial top-left"></div>
+    <div class="fiducial top-right"></div>
+    <div class="fiducial bottom-left"></div>
+    <div class="fiducial bottom-right"></div>
+    {all_elements_html}
 </div>
-
-<div class="answer-sheet-container">
 """
-
-    # --- Absolute Positioning Logic ---
-    # Define fixed positions for the answer groups. Fills one column completely before moving to the next.
-    # Supports up to 15 groups (75 questions) in 3 columns.
-    positions = [
-        # Column 1 (Questions 1-25)
-        (10, 20), (45, 20), (80, 20), (115, 20), (150, 20),
-        # Column 2 (Questions 26-50)
-        (10, 85), (45, 85), (80, 85), (115, 85), (150, 85),
-        # Column 3 (Questions 51-75)
-        (10, 150), (45, 150), (80, 150), (115, 150), (150, 150),
-    ]
-
-    groups_html = []
-    header_row = '<div class="answer-header"><div class="header-q-num">&nbsp;</div>' + \
-                 ''.join([f'<div class="header-option">{chr(ord("A")+i)}</div>' for i in range(5)]) + \
-                 '</div>'
-
-    for i in range(0, len(questions), 5):
-        group_index = i // 5
-        if group_index >= len(positions):
-            logging.warning(f"Not enough predefined positions for all question groups. Group {group_index+1} will not be placed.")
-            break
-
-        pos_top, pos_left = positions[group_index]
-        group_questions = questions[i:i+5]
-
-        # Apply positioning directly to the answer-group div, removing the wrapper
-        # Using !important to ensure inline styles override any CSS
-        # Use CSS transform translate for robust positioning in Marp/Chromium
-        group_html = (
-            f'<div class="answer-group" '
-            f'style="position: absolute; top: 0; left: 0; transform: translate({pos_left}mm, {pos_top}mm);">'
-        )
-        group_html += header_row
-
-        for q in group_questions:
-            row_html = f'<div class="answer-row"><div class="question-number">{q.id}</div>' # Use correct q.id
-            row_html += '<div class="options-container">' + ('<div class="option-box"></div>' * 5) + '</div>'
-            row_html += '</div>'
-            group_html += row_html
-
-        group_html += '</div>' # Close answer-group
-        groups_html.append(group_html)
-
-    all_groups_html = "\n".join(groups_html)
-
-    return f"{header}\n{all_groups_html}\n</div>"
-
-
-def _estimate_question_height(question: PexamQuestion) -> int:
-    """Estimates the 'height' of a question in arbitrary units (e.g., lines)."""
-    # Base height for question number and spacing
-    height = 2
-    # Add height for question text (approx. 1 unit per 80 chars)
-    height += (len(question.text) // 80) + 1
-    # Add height for options
-    height += len(question.options)
-    for option in question.options:
-        height += (len(option.text) // 80)
-    # Add a fixed height for an image
-    if question.image_path:
-        height += 8  # Arbitrary value, needs tuning
-    return height
 
 
 def _generate_questions_markdown(
-    questions: List[PexamQuestion], 
-    columns: int = 1
+    questions: List[PexamQuestion]
 ) -> str:
-    """Generates the Markdown for the question pages, with automatic page breaks."""
-    
-    # Heuristic page height limit in 'lines'
-    PAGE_HEIGHT_LIMIT = 60 
-    page_height_limit_with_cols = PAGE_HEIGHT_LIMIT * columns
-
+    """Generates the Markdown for the question pages."""
     md_parts = []
-    current_page_height = 0
-    first_page = True
-    
-    md_parts.append('\n<div class="questions-container">\n')
-
     for q in questions:
-        q_height = _estimate_question_height(q)
-
-        if not first_page and current_page_height + q_height > page_height_limit_with_cols:
-            # End previous page and start a new one
-            md_parts.append("\n</div>\n") # Close container for this page
-            md_parts.append("---")
-            md_parts.append('\n<div class="questions-container">\n')
-            current_page_height = 0
-        
-        # Add a blank line before the div for proper rendering
         md_parts.append('\n<div class="question-wrapper">\n')
 
-        question_text = q.text.replace('\n', '  \n')
-        md_parts.append(f"**{q.id}.** {question_text}\n")
+        # Convert question text to HTML, ensuring it's treated as a single paragraph block
+        question_text_html = markdown.markdown(q.text.replace('\n', ' <br> ')).strip()
+        # Remove paragraph tags that markdown lib might add
+        if question_text_html.startswith("<p>"):
+            question_text_html = question_text_html[3:-4]
         
-        if q.image_path:
-            md_parts.append(f"![Image for question {q.id}]({q.image_path})\n")
+        md_parts.append(f'<div class="question-text"><b>{q.id}.</b> {question_text_html}</div>\n')
+        
+        if q.image_source:
+            src = q.image_source
+            if os.path.exists(src):
+                src = f"file:///{os.path.abspath(src)}"
+            md_parts.append(f'<img src="{src}" alt="Image for question {q.id}">\n')
 
+        md_parts.append('<div class="options-block">')
         for i, option in enumerate(q.options):
             option_label = chr(ord('A') + i)
-            # Use pure markdown for the list of options for better rendering of inner markdown (e.g. backticks)
-            option_text_md = option.text.replace('\n', '  \n') # Preserve newlines
-            md_parts.append(f"- **{option_label})** {option_text_md}")
+            # Convert option text to HTML, ensuring it's a single paragraph block
+            option_text_html = markdown.markdown(option.text.replace('\n', ' <br> ')).strip()
+            if option_text_html.startswith("<p>"):
+                option_text_html = option_text_html[3:-4]
+
+            md_parts.append(f'<div class="option-item"><span class="option-label"><b>{option_label})</b></span><span class="option-text">{option_text_html}</span></div>')
+        md_parts.append("</div>") # Close options-block
             
         md_parts.append('</div>\n')
 
-        current_page_height += q_height
-        first_page = False
-            
-    md_parts.append('</div>\n') # Close final questions-container
     return "\n".join(md_parts)
 
 
@@ -264,30 +179,33 @@ def generate_exams(
     exam_title: str = "Final Exam",
     exam_course: Optional[str] = None,
     exam_date: Optional[str] = None,
-    font_size: str = "11pt",
     columns: int = 1,
     id_length: int = 10,
-    lang: str = "en"
+    lang: str = "en",
+    keep_html: bool = False,
+    font_size: str = "11pt",
+    test_mode: bool = False
 ):
     """
-    Generates exam PDFs from a list of questions using Marp.
+    Generates exam PDFs from a list of questions using Playwright.
     """
     logging.info(f"Starting pexams PDF generation for {len(questions)} questions.")
     logging.info(f"Exams will be output to: {output_dir}")
-
-    marp_command = _get_marp_command()
-    if not marp_command:
-        logging.error("Could not find a way to run Marp. Please install Node.js (which includes npm and npx).")
-        return
 
     if not os.path.isdir(output_dir):
         os.makedirs(output_dir)
         logging.info(f"Created output directory: {output_dir}")
         
-    css_path = os.path.join(os.path.dirname(__file__), "exam_template.css")
+    css_path = os.path.join(os.path.dirname(__file__), "pexams.css")
     if not os.path.exists(css_path):
-        logging.error(f"Marp CSS theme not found at {css_path}. Cannot generate exams.")
+        logging.error(f"CSS theme not found at {css_path}. Cannot generate exams.")
         return
+        
+    with open(css_path, "r", encoding="utf-8") as f:
+        css_content = f.read()
+
+    column_classes = {1: "", 2: "two-columns", 3: "three-columns"}
+    column_class = column_classes.get(columns, "")
 
     for i in range(1, num_models + 1):
         model_questions = list(questions)
@@ -297,8 +215,7 @@ def generate_exams(
         for q_idx, q in enumerate(model_questions, 1):
             q.id = q_idx
 
-        # The language parameter will need to be passed down from the pipeline
-        answer_sheet_md = _generate_answer_sheet_markdown(
+        answer_sheet_html = _generate_answer_sheet_html(
             model_questions, 
             i, 
             exam_title=exam_title,
@@ -307,89 +224,173 @@ def generate_exams(
             lang=lang, 
             id_length=id_length
         )
-        questions_md = _generate_questions_markdown(
-            model_questions, columns=columns
-        )
-
-        final_md_content = f"""---
-marp: true
-theme: exam
-_class:
-  - {font_size.replace("pt", "")}pt
-header: "{exam_title if exam_title else ''} - {exam_date if exam_date else ''}"
-footer: "Model {i}"
-style: |
-    @import '{os.path.basename(css_path)}';
----
-
-<!-- _header: . -->
-<!-- _footer: . -->
-
-{answer_sheet_md}
-
----
-
-<!-- _header: . -->
-<!-- _footer: . -->
-
-<!-- Leave a blank page between the answer sheet and the questions -->
-
----
-
-{questions_md}
-
+        questions_md = _generate_questions_markdown(model_questions)
+        questions_html = markdown.markdown(questions_md, extensions=['fenced_code', 'codehilite'])
+        
+        final_html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{exam_title} - Model {i}</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Roboto:ital,wght@0,300;0,400;0,500;0,700&display=swap">
+    <style>
+        {css_content}
+    </style>
+    <style>
+        body {{ font-size: {font_size}; }}
+    </style>
+</head>
+<body>
+    {answer_sheet_html}
+    <div class="page-container" style="page-break-after: always;"></div>
+    <div class="page-container questions-container {column_class}">
+        {questions_html}
+    </div>
+</body>
+</html>
 """
-        md_filename = f"exam_model_{i}.md"
-        md_filepath = os.path.join(output_dir, md_filename)
-        
-        with open(md_filepath, "w", encoding="utf-8") as f:
-            f.write(final_md_content)
-        logging.info(f"Generated Markdown for exam model {i}: {md_filepath}")
-        
-        # Run Marp CLI to convert to PDF
+        html_filepath = os.path.join(output_dir, f"exam_model_{i}.html")
         pdf_filepath = os.path.join(output_dir, f"exam_model_{i}.pdf")
+
+        with open(html_filepath, "w", encoding="utf-8") as f:
+            f.write(final_html_content)
+        logging.info(f"Generated HTML for exam model {i}: {html_filepath}")
         
-        # We need to copy the theme to the output dir for Marp to find it
-        theme_basename = os.path.basename(css_path)
-        shutil.copy(css_path, os.path.join(output_dir, theme_basename))
-        
-        command = marp_command + [
-            "--pdf",
-            "--allow-local-files",
-            "--theme-set", theme_basename,
-            "--theme", "exam", # Explicitly apply the theme registered via --theme-set
-            md_filename, # Use just the filename, not the full path
-            "-o",
-            pdf_filepath
-        ]
-        
-        logging.info(f"Running Marp command: {' '.join(command)}")
         try:
-            # On Windows, npx is a .cmd script and needs shell=True to be found by subprocess.
-            is_windows = sys.platform == "win32"
-            process = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=True,
-                encoding='utf-8',
-                cwd=output_dir, # Run marp from the output dir
-                shell=is_windows 
-            )
-            if process.stdout:
-                logging.info(f"Marp STDOUT:\n{process.stdout}")
-            if process.stderr:
-                logging.info(f"Marp STDERR:\n{process.stderr}")
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                page = browser.new_page()
+                # Use file:// protocol to load the local HTML file
+                page.goto(f"file:///{os.path.abspath(html_filepath)}")
+                
+                header_text = f"{exam_title} - {exam_date}" if exam_date else exam_title
+
+                page.pdf(
+                    path=pdf_filepath,
+                    format='A4',
+                    print_background=True,
+                    margin={'top': '15mm', 'bottom': '15mm', 'left': '15mm', 'right': '15mm'},
+                    display_header_footer=True,
+                    header_template=f'<div style="font-family: Open Sans, sans-serif; font-size: 9px; color: #888; width: 100%; text-align: center;">{header_text}</div>',
+                    footer_template=f'<div style="font-family: Open Sans, sans-serif; font-size: 9px; color: #888; width: 100%; text-align: center;">Model {i} - Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>'
+                )
+                browser.close()
             logging.info(f"Successfully generated PDF for model {i}: {pdf_filepath}")
-        except FileNotFoundError:
-            # This error can happen on Windows if shell=True is needed for npx.cmd
-            # or if Node.js is not properly installed.
-            logging.error("Marp/npx command failed to start. Please ensure Node.js is correctly installed and in your PATH.")
-            break # Stop trying to generate more models
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Marp CLI failed for model {i} with return code {e.returncode}.")
-            logging.error(f"Marp STDERR:\n{e.stderr}")
+
+            if test_mode:
+                logging.info(f"Test mode enabled: Generating simulated scan for model {i}")
+                _generate_simulated_scan(pdf_filepath, model_questions, output_dir, i)
+
+        except PlaywrightError as e:
+            logging.error(f"Playwright failed to generate PDF for model {i}: {e}")
+            logging.error("Have you installed the browser binaries? Try running 'playwright install'")
             break
         except Exception as e:
-            logging.error(f"An unexpected error occurred while running Marp for model {i}: {e}")
+            logging.error(f"An unexpected error occurred while generating PDF for model {i}: {e}")
             break
+        finally:
+            if not keep_html and os.path.exists(html_filepath):
+                os.remove(html_filepath)
+                logging.info(f"Removed temporary HTML file: {html_filepath}")
+
+def _generate_simulated_scan(original_pdf_path: str, questions: List[PexamQuestion], output_dir: str, model_num: int):
+    """
+    Takes the first page of a PDF, converts it to an image,
+    and adds fake answers, name, ID, and signature to simulate a scan.
+    """
+    try:
+        from pdf2image import convert_from_path
+    except ImportError:
+        logging.error("pdf2image is required for test mode. Please install it.")
+        return
+
+    fake = Faker()
+    scan_output_dir = os.path.join(output_dir, "simulated_scans")
+    os.makedirs(scan_output_dir, exist_ok=True)
+
+    # 1. Convert first page of PDF to an image
+    try:
+        images = convert_from_path(original_pdf_path, first_page=1, last_page=1, dpi=300)
+        if not images: return
+        page_image = images[0]
+        img_np = np.array(page_image)
+        img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+    except Exception as e:
+        logging.error(f"Failed to convert PDF to image for simulation: {e}")
+        return
+
+    # Define coordinate transformation constants
+    DPI = 300
+    MM_PER_INCH = 25.45
+    PX_PER_MM = DPI / MM_PER_INCH
+    MARGIN_MM = 15 # The margin used when generating the PDF
+    
+    # Add a small adjustment to shift content down and to the right
+    ADJUSTMENT_MM = 2 
+
+    offset_x = int((MARGIN_MM + ADJUSTMENT_MM) * PX_PER_MM)
+    offset_y = int((MARGIN_MM + ADJUSTMENT_MM) * PX_PER_MM)
+
+    # 2. Get layout data
+    layout_data = layout.get_answer_sheet_layout(len(questions))
+
+    # 3. Add fake data
+    # Fake Name
+    name_box = layout_data.student_name_box
+    name_pos = (
+        int(name_box.top_left[0] * PX_PER_MM) + offset_x + 10,
+        int(name_box.center[1] * PX_PER_MM) + offset_y + 15
+    )
+    cv2.putText(img_cv, fake.name(), name_pos, cv2.FONT_HERSHEY_SIMPLEX, 2, (20, 20, 20), 4)
+
+    # Fake ID
+    fake_id = "".join(random.choices("0123456789", k=len(layout_data.student_id_boxes)))
+    for i, box in enumerate(layout_data.student_id_boxes):
+        text = fake_id[i]
+        font_scale = 1.8
+        font_thickness = 4
+        (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)
+        
+        center_x_px = int(box.center[0] * PX_PER_MM) + offset_x
+        center_y_px = int(box.center[1] * PX_PER_MM) + offset_y
+        
+        id_pos = (center_x_px - text_width // 2, center_y_px + text_height // 2)
+        cv2.putText(img_cv, text, id_pos, cv2.FONT_HERSHEY_SIMPLEX, font_scale, (20, 20, 20), font_thickness)
+
+    # Fake Signature (scribble)
+    sig_box = layout_data.student_signature_box
+    center_y = int(sig_box.center[1] * PX_PER_MM) + offset_y
+    start_x = int(sig_box.top_left[0] * PX_PER_MM) + offset_x + 15
+    end_x = int(sig_box.bottom_right[0] * PX_PER_MM) + offset_x - 15
+    for x in range(start_x, end_x, 10):
+        y_offset = random.randint(-20, 20)
+        cv2.line(img_cv, (x, center_y + y_offset), (x+10, center_y - y_offset), (30, 30, 30), 4)
+
+    # Fake Answers (more realistic filling)
+    for q_id, options in layout_data.answer_boxes.items():
+        if random.random() > 0.1: # 10% chance to leave blank
+            chosen_option = random.choice(list(options.values()))
+            
+            tl_x_mm, tl_y_mm = chosen_option.top_left
+            br_x_mm, br_y_mm = chosen_option.bottom_right
+
+            # Calculate pixel coordinates directly from the answer box layout, adding the page margin offset.
+            tl_x = int(tl_x_mm * PX_PER_MM) + offset_x
+            tl_y = int(tl_y_mm * PX_PER_MM) + offset_y
+            br_x = int(br_x_mm * PX_PER_MM) + offset_x
+            br_y = int(br_y_mm * PX_PER_MM) + offset_y
+
+            # Create a distorted, hand-drawn-like fill
+            points = np.array([
+                [tl_x + random.randint(1, 4), tl_y + random.randint(1, 4)],
+                [br_x - random.randint(1, 4), tl_y + random.randint(1, 4)],
+                [br_x - random.randint(1, 4), br_y - random.randint(1, 4)],
+                [tl_x + random.randint(1, 4), br_y - random.randint(1, 4)]
+            ])
+            cv2.fillPoly(img_cv, [points], (10, 10, 10))
+
+    # 4. Save the simulated scan
+    output_path = os.path.join(scan_output_dir, f"simulated_scan_model_{model_num}.png")
+    cv2.imwrite(output_path, img_cv)
+    logging.info(f"Saved simulated scan to {output_path}")

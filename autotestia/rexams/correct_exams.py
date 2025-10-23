@@ -310,7 +310,7 @@ def main():
     
     # --- R Script and Language ---
     parser.add_argument("--r-executable", type=str, default=None, help="Path to Rscript. Tries to find automatically if None.")
-    parser.add_argument("--language", type=str, default="en", choices=["en", "es", "ca", "de", "fr", "it", "nl", "pt", "ru", "zh", "ja"], help="Language for nops_eval.")
+    parser.add_argument("--exam-language", type=str, default="en", choices=["en", "es", "ca", "de", "fr", "it", "nl", "pt", "ru", "zh", "ja"], help="Language for nops_eval.")
     
     # --- Scan and Evaluation Parameters ---
     parser.add_argument("--scan-thresholds", type=str, default="0.04,0.42", help="Scan thresholds for nops_scan (lower,upper).")
@@ -420,7 +420,7 @@ def main():
             r_script_successfully_completed = run_correction_script(
                 all_scans_pdf=args.all_scans_pdf, student_info_csv=args.student_info_csv,
                 solutions_rds=args.solutions_rds, output_path=args.output_path,
-                language=args.language, scan_thresholds=scan_thresholds_tuple,
+                language=args.exam_language, scan_thresholds=scan_thresholds_tuple,
                 partial_eval=args.partial_eval, negative_points=args.negative_points,
                 max_score=args.max_score, scale_mark_to=args.scale_mark_to,
                 split_pages_python_control=args.split_pages_python_control,
