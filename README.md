@@ -83,16 +83,10 @@ The library has been tested on Python 3.11.
 
     1.  **Install the `pexams` library:**
 
-        The library is not on PyPI yet and must be installed from GitHub. It will be installed automatically when you install AutoTestIA's requirements. If you need to install it manually:
+        `pexams` is already installed as a dependency of AutoTestIA, but you can install it manually too:
 
         ```bash
-        pip install git+https://github.com/OscarPellicer/pexams.git
-        ```
-        Alternatively, for development:
-        ```bash
-        git clone https://github.com/OscarPellicer/pexams.git
-        cd pexams
-        pip install -e .
+        pip install pexams
         ```
 
     2.  **Install Playwright Browsers:**
@@ -119,11 +113,11 @@ The library has been tested on Python 3.11.
         *   `qpdf`: Used by `autotestia/rexams/run_autocorrection.R` (for `autotestia_correct`) for splitting PDF files if R handles the splitting.
         *   The `autotestia_correct` command (and its underlying Python PDF processing option `--split-pages`) also has Python dependencies like `PyPDF2`, `pdf2image`, and `opencv-python` which are part of the main package install, but Poppler is an external dependency for `pdf2image`.
 
-**Note on parsing `.pptx` files (untested, WIP)**
+**Note on parsing `.pptx` files (WIP)**
 
 Unfortunately, the `python-pptx` library in charge of parsing `.pptx` files does not correctly parse MathML equations. This has been solved in my fork of the library: https://github.com/OscarPellicer/python-pptx.
 
-To use it, you need to install this version AFTER installing everything else:
+To use it, you need to install this version of `python-pptx` manually AFTER installing everything else:
 
 ```bash
 pip install git+https://github.com/OscarPellicer/python-pptx.git
