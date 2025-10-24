@@ -142,8 +142,8 @@ def main():
                         type=str,
                         default=None,
                         help="Custom date for R/exams or pexams PDF output")
-    parser.add_argument("--test-mode", action="store_true", help="[PEXAMS] Generate simulated scans with fake answers for testing.")
-
+    parser.add_argument("--exam-generate-fakes", type=int, default=0, help="[PEXAMS] Generate a number of simulated scans with fake answers for testing the correction process. Default is 0.")
+    parser.add_argument("--exam-generate-references", action="store_true", help="[PEXAMS] Generate a reference scan with correct answers for each model.")
 
     # --- Logging Argument ---
     parser.add_argument("--log-level",
@@ -369,7 +369,8 @@ def main():
             font_size=args.exam_font_size,
             pexams_columns=args.exam_columns,
             pexams_id_length=args.exam_id_length,
-            pexams_test_mode=args.test_mode
+            pexams_generate_fakes=args.exam_generate_fakes,
+            pexams_generate_references=args.exam_generate_references
         )
     except Exception as e:
         logging.error(f"Pipeline execution failed: {e}", exc_info=True) # Log with traceback

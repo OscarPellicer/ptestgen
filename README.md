@@ -26,13 +26,13 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   **Clarity:** How clear the question and options are.
     *   **Distractor Plausibility:** How convincing the incorrect answers are.
 *   **Manual Review Workflow (OE3):** Outputs questions in a clean Markdown format for easy verification and editing by the educator. Can be skipped via CLI flag.
-*   **Format Conversion (OE4):** Converts the finalized questions into formats compatible with Moodle (XML/GIFT), Wooclap (Placeholder), and R/exams (.Rmd structure).
+*   **Format Conversion (OE4):** Converts the finalized questions into formats compatible with Moodle (XML/GIFT), Wooclap, pexams (PDF), and R/exams (.Rmd structure).
 *   **Question Shuffling & Selection:**
     *   Shuffle the order of generated questions (`--shuffle-questions`).
     *   Shuffle the order of answers within each question (`--shuffle-answers`).
     *   Select a random subset of the final questions (`--num-final-questions`).
 *   **Integrated Pipeline (OE5):** A cohesive Python script orchestrates the entire process.
-*   *(Future)* Evaluation Agent (OE6)
+*  **Evaluation Agent (OE6)**
 *   *(Future)* Dynamic Question Support (OE7)
 *   *(Future)* Humorous Distractor Option (OE8)
 
@@ -75,7 +75,34 @@ The library has been tested on Python 3.11.
     OPENAI_GENERATOR_MODEL="gpt-4o"
     # etc.
     ```
-6.  **(For R/exams Users) Install R, LaTeX, and Required R Packages:**
+6.  **(Recommended) Setup for `pexams` (Python-based PDF exams)**
+
+    `pexams` is a pure Python library for generating and correcting scannable multiple-choice exams, similar to R/exams. It is the recommended engine for PDF exam generation within AutoTestIA as it does not require installing R or LaTeX.
+
+    For more details, please visit the official repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
+
+    1.  **Install the `pexams` library:**
+
+        The library is not on PyPI yet and must be installed from GitHub. It will be installed automatically when you install AutoTestIA's requirements. If you need to install it manually:
+
+        ```bash
+        pip install git+https://github.com/OscarPellicer/pexams.git
+        ```
+        Alternatively, for development:
+        ```bash
+        git clone https://github.com/OscarPellicer/pexams.git
+        cd pexams
+        pip install -e .
+        ```
+
+    2.  **Install Playwright Browsers:**
+
+        `pexams` uses Playwright to render HTML to PDF. You must install the required browser binaries:
+        ```bash
+        playwright install chromium
+        ```
+
+7.  **(For R/exams Users) Install R, LaTeX, and Required R Packages:**
     To utilize the R/exams output format (which produces `.pdf` files) or to use the `autotestia_correct` command for correcting R/exams NOPS scans, you must have R and a LaTeX distribution installed on your system. The helper R scripts also require specific R packages.
 
     *   **Install R:** Download and install R from [The Comprehensive R Archive Network (CRAN)](https://cran.r-project.org/).
@@ -108,7 +135,8 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
 
 *   `autotestia`: Main command to generate questions from documents or instructions.
 *   `autotestia_split`: Command to split an existing Markdown question file into multiple smaller files.
-*   `autotestia_correct`: Command to correct R/exams NOPS scans.
+*   `autotestia_correct_pexams`: Command to correct pexams scans.
+*   `autotestia_correct_rexams`: Command to correct R/exams NOPS scans.
 
 ### `autotestia`: Generate questions from a document or instructions
 
@@ -205,7 +233,21 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
     *   Creates Wooclap-compatible output with shuffled questions and answers.
     *   Uses fixed seed (123) for reproducible shuffling.
 
-5.  **Resume from Markdown file and convert to R/Exams format:**
+6.  **Resume from Markdown and convert to `pexams` PDF format:**
+    ```bash
+    autotestia \
+        --resume-from-md generated/exam_questions.md \
+        -f pexams \
+        --exam-title "Sistemas Informáticos - Examen Parcial" \
+        --exam-course "Máster de ejemplo" \
+        --exam-date "2025-10-22" \
+        --exam-models 4 \
+        --shuffle-answers 123
+    ```
+    *   Parses `generated/exam_questions.md`.
+    *   Creates 4 PDF exam models using the `pexams` engine.
+
+7.  **Resume from Markdown file and convert to R/Exams format:**
     ```bash
     autotestia \
         --resume-from-md generated/exam_questions.md \
@@ -220,7 +262,7 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
     *   Creates R/Exams format with custom title, course, and date.
     *   Shuffles answers with fixed seed for consistency.
 
-6.  **Other example (would not use this in practice): generate questions with image input and R/exams output directly without reviewing:**
+8.  **Other example (would not use this in practice): generate questions with image input and R/exams output directly without reviewing:**
     ```bash
     # Make sure OPENROUTER_API_KEY is in .env
     autotestia course_material.txt \
@@ -259,7 +301,7 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
     *   `--extract-doc-images`: [Experimental] Attempt to extract images from documents (requires `input_material`).
     *   `--language`: Language for questions (default: `en`).
 *   **Output & Formatting Control:**
-    *   `-f`, `--formats`: Final output format(s) (choices: `moodle_xml`, `gift`, `wooclap`, `rexams`, `none`. Default: `moodle_xml gift`). Use `none` to 
+    *   `-f`, `--formats`: Final output format(s) (choices: `moodle_xml`, `gift`, `wooclap`, `pexams`, `rexams`, `none`. Default: `moodle_xml gift`). Use `none` to 
     only output the intermediate Markdown.
     *   `--shuffle-questions [SEED]`: Shuffle the order of questions after Markdown parsing. Provide an optional integer seed for reproducibility. If 
     seed is omitted, uses a random seed.
@@ -274,9 +316,18 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
 *   **General Options:**
     *   `--log-level`: Set logging verbosity (choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, default: `WARNING`).
 
-*   **R/exams Options:**
-    *   `--rexams-title`: Custom title for R/exams PDF output. If not set, uses R script's default.
-    *   `--rexams-course`: Custom course name for R/exams PDF output. If not set, uses R script's default.
+*   **Pexams / R/exams Options:**
+    *   `--exam-title`: Custom title for pexams or R/exams PDF output.
+    *   `--exam-course`: Custom course name for pexams or R/exams PDF output.
+    *   `--exam-date`: Custom date for pexams or R/exams PDF output.
+    *   `--exam-models`: Number of different exam models (versions) to generate.
+
+*   **Pexams Specific Options:**
+    *   `--exam-font-size`: Font size for pexams PDF output (e.g., '10pt').
+    *   `--exam-columns`: Number of columns for questions in pexams PDF (1 or 2).
+    *   `--exam-id-length`: Number of boxes for the student ID grid.
+    *   `--exam-generate-fakes N`: Generate `N` simulated scans with fake answers for testing the correction process.
+    *   `--exam-generate-references`: Generate a reference scan with correct answers for each model.
 
 ### `autotestia_split`: Split a question file into multiple smaller files
 
@@ -302,20 +353,20 @@ autotestia_split all_questions.md \
 *   Second file: 25% of remaining questions (shuffled)
 *   Third file: all remaining questions
 
-### `autotestia_correct`: Correct R/exams NOPS Scans
+### `autotestia_correct_rexams`: Correct R/exams NOPS Scans
 
-The `autotestia_correct` command (wrapping `autotestia/rexams/correct_exams.py`) provides a command-line interface to automate the correction of scanned R/exams NOPS answer sheets. It wraps an R script (`autotestia/rexams/run_autocorrection.R`) that performs the core operations: scanning marks using `nops_scan()`, preparing student registration data, and evaluating exams using `nops_eval()`. 
+The `autotestia_correct_rexams` command (wrapping `autotestia/rexams/correct_exams.py`) provides a command-line interface to automate the correction of scanned R/exams NOPS answer sheets. It wraps an R script (`autotestia/rexams/run_autocorrection.R`) that performs the core operations: scanning marks using `nops_scan()`, preparing student registration data, and evaluating exams using `nops_eval()`. 
 
 This Python wrapper can also optionally handle PDF splitting and page rotation using its own image processing capabilities (OpenCV, pdf2image) if you use the `--split-pages` flag and related options, before passing the processed scan data to the R script. This provides more control over the pre-processing steps directly within Python.
 
 By default, for the categorical marks generated by `nops_eval` (which appear in the HTML reports and a "mark" column in the CSV/RDS files), the R script uses a Spanish grading system with descriptive labels (e.g., "Suspenso Muy Deficiente", "Aprobado", "Matrícula de Honor") and percentage thresholds like `0.099, 0.199, ..., 0.949`. You can customize this or omit these marks entirely using specific command-line options.
 
-#### Examples for `autotestia_correct`:
+#### Examples for `autotestia_correct_rexams`:
 
 **Correct exams from PDF scans with Python processing:**
 ```bash
 # Ensure R and necessary R packages (exams, qpdf, optparse) are installed.
-autotestia_correct \
+autotestia_correct_rexams \
     --all-scans-pdf generated/splits/exam_scans.pdf \
     --student-info-csv generated/splits/student_register.csv \
     --solutions-rds generated/splits/exam_output/exam.rds \
@@ -344,7 +395,7 @@ autotestia_correct \
 
 **Correct exams from manually corrected CSV:**
 ```bash
-autotestia_correct \
+autotestia_correct_rexams \
     --corrected-answers-csv generated/splits/manual_corrections.csv \
     --solutions-rds generated/splits/exam_output/exam.rds \
     --output-path generated/splits/manual_corrected \
@@ -360,7 +411,7 @@ autotestia_correct \
 **Basic correction workflow:**
 ```bash
 # Ensure R and necessary R packages (exams, qpdf, optparse) are installed.
-autotestia_correct \
+autotestia_correct_rexams \
     --all-scans-pdf path/to/your/all_scans_concatenated.pdf \
     --split-pages \
     --student-info-csv path/to/your/student_data.csv \
@@ -380,7 +431,7 @@ These commands would:
 6.  Scale the marks based on a maximum possible score of 45 to a new scale up to 10.
 7.  Generate a histogram of scores and other statistics (if `--max-score` is provided).
 
-#### Command Line Options for `autotestia_correct`:
+#### Command Line Options for `autotestia_correct_rexams`:
 
 *   **Input Files/Directories:**
     *   `--all-scans-pdf`: Path to a single PDF containing all scanned exam sheets (required if Python's `--split-pages` is used, or if R is to split pages).

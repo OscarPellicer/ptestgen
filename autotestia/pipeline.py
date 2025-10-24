@@ -13,8 +13,8 @@ from .agents.reviewer import QuestionReviewer
 from .agents.evaluator import QuestionEvaluator
 from .output_formatter import markdown_writer, converters
 from .rexams import generate_exams as rexams_wrapper
-from .pexams import generate_exams as pexams_wrapper
-from .pexams import utils as pexams_utils
+import pexams
+from .output_formatter import pexams_adapter
 
 class AutoTestIAPipeline:
     """Orchestrates the AutoTestIA question generation process."""
@@ -94,7 +94,8 @@ class AutoTestIAPipeline:
             font_size: str = "11pt",
             pexams_columns: int = 1,
             pexams_id_length: int = 10,
-            pexams_test_mode: bool = False
+            pexams_generate_fakes: int = 0,
+            pexams_generate_references: bool = False
             ) -> str:
         """
         Runs the AutoTestIA pipeline.
@@ -129,7 +130,8 @@ class AutoTestIAPipeline:
             font_size: Font size for pexams PDF output.
             pexams_columns: Number of columns for questions in pexams PDF.
             pexams_id_length: Number of boxes for the student ID grid.
-            pexams_test_mode: Generate simulated scans for testing pexams correction.
+            pexams_generate_fakes: Generate a number of simulated scans with fake answers for testing the correction process.
+            pexams_generate_references: Generate a reference scan with correct answers for each model.
 
         Returns:
             The path to the intermediate Markdown file.
@@ -562,13 +564,14 @@ class AutoTestIAPipeline:
             os.makedirs(pexams_output_dir, exist_ok=True)
             
             # Convert autotestia questions to the portable pexams format
-            pexam_questions = pexams_utils.convert_autotestia_to_pexam(questions_for_conversion)
+            pexam_questions = pexams_adapter.convert_autotestia_to_pexam(questions_for_conversion)
 
             # Pass the generic exam parameters to the pexams wrapper
-            pexams_wrapper.generate_exams(
+            from pexams import generate_exams
+            generate_exams.generate_exams(
                 questions=pexam_questions,
                 output_dir=pexams_output_dir,
-                num_models=exam_models,
+                num_models=int(exam_models),
                 exam_title=exam_title if exam_title is not None else "Final Exam",
                 exam_course=exam_course,
                 exam_date=exam_date,
@@ -576,7 +579,8 @@ class AutoTestIAPipeline:
                 columns=pexams_columns,
                 id_length=pexams_id_length,
                 lang=language,
-                test_mode=pexams_test_mode
+                generate_fakes=pexams_generate_fakes,
+                generate_references=pexams_generate_references
             )
             conversion_performed = True
             print(f"Pexams (Python/Marp) outputs generated in: {os.path.abspath(pexams_output_dir)}")
