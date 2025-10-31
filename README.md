@@ -46,11 +46,20 @@ The library has been tested on Python 3.11.
     cd AutoTestIA
     ```
 2.  (Recommended) Create and activate a virtual environment:
+    
+    **Option A: Using `conda` (recommended):**
     ```bash
-    python -m venv venv
-    # On Windows: venv\Scripts\activate
-    # On macOS/Linux: source venv/bin/activate
+    conda create -n autotestia python=3.11
+    conda activate autotestia
     ```
+    
+    **Option B: Using `venv`:**
+    ```bash
+    python -m venv autotestia
+    # On Windows: autotestia\Scripts\activate
+    # On macOS/Linux: source autotestia/bin/activate
+    ```
+
 3.  Install required dependencies and the package in editable mode:
     ```bash
     # Core dependencies will be installed by the next command
