@@ -4,7 +4,7 @@ AutoTestIA is a Python-based tool designed to assist educators in generating mul
 
 ## Project Goal
 
-To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic generation of multiple-choice questions via intelligent agents, integrated into an efficient, user-friendly Python pipeline adaptable to various educational platforms (Moodle, Wooclap, R/exams).
+To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic generation of multiple-choice questions via intelligent agents, integrated into an efficient, user-friendly Python pipeline adaptable to various educational platforms (Moodle, Wooclap, [pexams](https://github.com/OscarPellicer/pexams), R/exams).
 
 ## Core Features
 
