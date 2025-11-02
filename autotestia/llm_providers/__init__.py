@@ -4,6 +4,8 @@ from .google import GoogleProvider
 from .anthropic import AnthropicProvider
 # from .replicate import ReplicateProvider # Placeholder
 from .. import config
+import logging
+from typing import Dict
 
 def get_provider(
     provider_name: str = config.LLM_PROVIDER,
@@ -11,6 +13,23 @@ def get_provider(
     api_keys: dict = None
 ) -> LLMProvider:
     """Factory function to get an instance of an LLM provider."""
+    
+    # --- Check for structured output support ---
+    supported_providers = config.STRUCTURED_OUTPUT_SUPPORTED_MODELS
+    is_supported = False
+    if provider_name in supported_providers:
+        if "*" in supported_providers[provider_name]:
+            is_supported = True
+        else:
+            is_supported = any(m in model_name for m in supported_providers[provider_name])
+    
+    if not is_supported:
+        logging.warning(
+            f"The selected model '{model_name}' for provider '{provider_name}' is not known to support reliable structured JSON output. "
+            f"Parsing may fail or be inconsistent."
+        )
+
+    # --- Provider Instantiation ---
     provider_name = provider_name.lower()
     
     if provider_name in ["openai", "openrouter", "ollama"]:

@@ -1,35 +1,31 @@
 from typing import List
-from ..schemas import Question
+from ..schemas import QuestionRecord
 from pexams.schemas import PexamQuestion, PexamOption
 
-def convert_autotestia_to_pexam(questions: List[Question]) -> List[PexamQuestion]:
-    """Converts a list of AutoTestIA Question objects to PexamQuestion objects."""
+def convert_autotestia_to_pexam(records: List[QuestionRecord]) -> List[PexamQuestion]:
+    """Converts a list of AutoTestIA QuestionRecord objects to PexamQuestion objects."""
     pexam_questions = []
-    for q in questions:
+    for i, record in enumerate(records):
+        content = record.get_latest_content()
         pexam_options = []
         correct_answer_index = None
         
-        # The Question dataclass provides options as a list of strings.
-        # We need to convert them to PexamOption objects.
-        options_texts = q.options
+        options_texts = content.options
 
-        for i, opt_text in enumerate(options_texts):
-            is_correct = (opt_text == q.correct_answer)
+        for j, opt_text in enumerate(options_texts):
+            is_correct = (opt_text == content.correct_answer)
             pexam_options.append(PexamOption(text=opt_text, is_correct=is_correct))
             if is_correct:
-                correct_answer_index = i
-        
-        # The new Question schema uses 'image_reference'
-        image_source = q.image_reference
+                correct_answer_index = j
         
         pexam_questions.append(
             PexamQuestion(
-                id=q.id,
-                text=q.text,
+                id=i + 1,  # Use sequential ID for pexams
+                text=content.text,
                 options=pexam_options,
                 correct_answer_index=correct_answer_index,
-                image_source=image_source,
-                metadata={} # The new Question schema does not have a metadata field.
+                image_source=record.image_reference,
+                metadata={"original_id": record.question_id}
             )
         )
     return pexam_questions

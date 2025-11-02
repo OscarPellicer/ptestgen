@@ -77,3 +77,8 @@ class GoogleProvider(LLMProvider):
         from ..schemas import LLMEvaluation
         full_prompt = system_prompt.format(question_json=question_json)
         return self._generate_content(LLMEvaluation, [full_prompt])
+
+    def supports_vision(self) -> bool:
+        """Checks if the Google model is known to support vision."""
+        # Models like "gemini-pro-vision" and the latest "gemini-1.5-pro" support vision.
+        return "vision" in self.model_name or "1.5" in self.model_name or "gemini-pro" in self.model_name

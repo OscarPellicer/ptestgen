@@ -1,44 +1,69 @@
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
 
-@dataclass
-class EvaluationData:
-    """Stores the results of an evaluation pass."""
-    difficulty_score: Optional[float] = None
-    pedagogical_value: Optional[float] = None
-    clarity_score: Optional[float] = None
-    distractor_plausibility_score: Optional[float] = None
-    evaluation_comments: List[str] = field(default_factory=list)
-    evaluator_guessed_correctly: Optional[bool] = None
+# --- Core Data Structures ---
 
-@dataclass
-class Question:
-    """Represents a single multiple-choice question."""
-    id: int
+class QuestionContent(BaseModel):
+    """Represents the core content of a question at any stage."""
     text: str
     correct_answer: str
     distractors: List[str]
-    source_material: Optional[str] = None # e.g., filename, page number
-    image_reference: Optional[str] = None # Path to an associated image
-    explanation: Optional[str] = None # Optional explanation for the correct answer
-    original_details: Optional[Dict[str, Any]] = None # Stores original text/answers before LLM review modification
-    
-    # New evaluation fields
-    initial_evaluation: Optional[EvaluationData] = None
-    reviewed_evaluation: Optional[EvaluationData] = None
+    explanation: Optional[str] = None
 
     @property
     def options(self) -> List[str]:
         """Returns a combined list of correct answer and distractors."""
         return [self.correct_answer] + self.distractors
 
-    # Add property to get correct index if needed by some converters, though less ideal
-    @property
-    def correct_option_index(self) -> int:
-        """Returns the index of the correct answer in the combined options list."""
-        # Assumes correct answer is always first internally for this property
-        return 0
+class EvaluationData(BaseModel):
+    """Stores the results of an evaluation pass."""
+    difficulty_score: Optional[float] = None
+    pedagogical_value: Optional[float] = None
+    clarity_score: Optional[float] = None
+    distractor_plausibility_score: Optional[float] = None
+    evaluation_comments: Optional[str] = None
+    evaluator_guessed_correctly: Optional[bool] = None
+
+class ChangeMetrics(BaseModel):
+    """Stores metrics about the changes between two stages of a question."""
+    status: str = "unchanged"  # e.g., unchanged, modified, removed
+    levenshtein_question: int = 0
+    levenshtein_answers: int = 0
+    rel_levenshtein_question: float = 0.0
+    rel_levenshtein_answers: float = 0.0
+
+class QuestionStage(BaseModel):
+    """Represents a question at a specific stage of the pipeline (e.g., generated, reviewed)."""
+    content: QuestionContent
+    evaluation: Optional[EvaluationData] = None
+
+class QuestionRecord(BaseModel):
+    """
+    Represents the full history and metadata for a single question.
+    This object corresponds to one row in the metadata TSV file.
+    """
+    question_id: str
+    source_material: Optional[str] = None
+    image_reference: Optional[str] = None
+
+    generated: Optional[QuestionStage] = None
+    reviewed: Optional[QuestionStage] = None
+    manual: Optional[QuestionStage] = None # Populated after parsing user-edited markdown
+
+    # Change tracking
+    changes_gen_to_rev: Optional[ChangeMetrics] = None
+    changes_rev_to_man: Optional[ChangeMetrics] = None
+
+    def get_latest_content(self) -> QuestionContent:
+        """Returns the most recent version of the question's content."""
+        if self.manual:
+            return self.manual.content
+        if self.reviewed:
+            return self.reviewed.content
+        if self.generated:
+            return self.generated.content
+        raise ValueError(f"QuestionRecord {self.question_id} has no content.")
+
 
 # --- Pydantic Schemas for LLM Structured Output ---
 

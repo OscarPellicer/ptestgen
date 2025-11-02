@@ -203,3 +203,4 @@ build/
 # Generated files: include some for now
 generated/
 !generated/all.md
+generated_test/

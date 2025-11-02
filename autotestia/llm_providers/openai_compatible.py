@@ -89,6 +89,13 @@ class OpenAICompatibleProvider(LLMProvider):
         
         return params
 
+    def supports_vision(self) -> bool:
+        """
+        Checks if the model is likely to support vision.
+        This is a heuristic based on common naming conventions.
+        """
+        return True # Assume all models support vision
+
     def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int) -> Optional[str]:
         from ..schemas import LLMQuestionList
         schema = LLMQuestionList.model_json_schema()

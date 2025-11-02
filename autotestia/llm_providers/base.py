@@ -33,6 +33,13 @@ class LLMProvider(abc.ABC):
     def evaluate_question(self, system_prompt: str, question_json: str) -> Optional[str]:
         """Evaluates a single question."""
         pass
+
+    def supports_vision(self) -> bool:
+        """
+        Returns True if the current model is known to support vision, False otherwise.
+        Can be overridden by subclasses for more specific checks.
+        """
+        return False
         
     def _call_llm_with_retry(self, api_call_func, *args, **kwargs):
         """Wrapper to handle retries for API calls. Can be overridden by providers if needed."""

@@ -105,22 +105,17 @@ The library has been tested on Python 3.11.
         playwright install chromium
         ```
 
-7.  **(For R/exams Users) Install R, LaTeX, and Required R Packages:**
-    To utilize the R/exams output format (which produces `.pdf` files) or to use the `autotestia_correct` command for correcting R/exams NOPS scans, you must have R and a LaTeX distribution installed on your system. The helper R scripts also require specific R packages.
+7.  **(DEPRECATED) Setup for R/exams**
+    > **Warning**
+    > The `rexams` export format and correction command are deprecated in favor of the pure Python `pexams` engine. Support for `rexams` will be removed in a future version. It is recommended to use `pexams` for generating PDF exams as it does not require installing R or LaTeX, and is much less prone to frustrating errors.
 
-    *   **Install R:** Download and install R from [The Comprehensive R Archive Network (CRAN)](https://cran.r-project.org/).
-    *   **Install LaTeX:** A LaTeX distribution is required for R/exams to compile `.Rmd` files into PDF documents.
-        *   We recommend [TinyTeX](https://yihui.org/tinytex/), a lightweight and easy-to-install LaTeX distribution. You can install it from within R by first installing the `tinytex` R package (`install.packages("tinytex")`) and then running `tinytex::install_tinytex()`.
-        *   Alternatively, you can use other LaTeX distributions like MiKTeX (Windows), MacTeX (macOS), or TeX Live (Linux).
-    *   **Install Required R Packages:** After installing R, open the R console and install the following packages. While the provided R scripts (`autotestia/rexams/generate_exams.R` and `autotestia/rexams/run_autocorrection.R`) attempt to install missing packages, it's best to install them beforehand:
+    To utilize the R/exams output format, you must have R and a LaTeX distribution installed.
+    *   **Install R:** [The Comprehensive R Archive Network (CRAN)](https://cran.r-project.org/).
+    *   **Install LaTeX:** We recommend [TinyTeX](https://yihui.org/tinytex/).
+    *   **Install Required R Packages:**
         ```R
         install.packages(c("exams", "optparse", "knitr", "qpdf"))
         ```
-        *   `exams`: The core package for all R/exams functionality.
-        *   `optparse`: Used by the helper R scripts for parsing command-line arguments.
-        *   `knitr`: Used by `autotestia/rexams/generate_exams.R` (for R/exams PDF generation) for processing R Markdown files.
-        *   `qpdf`: Used by `autotestia/rexams/run_autocorrection.R` (for `autotestia_correct`) for splitting PDF files if R handles the splitting.
-        *   The `autotestia_correct` command (and its underlying Python PDF processing option `--split-pages`) also has Python dependencies like `PyPDF2`, `pdf2image`, and `opencv-python` which are part of the main package install, but Poppler is an external dependency for `pdf2image`.
 
 **Note on parsing `.pptx` files (WIP)**
 
@@ -134,358 +129,230 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
 
 ## Usage
 
-**Commands:**
+The `autotestia` command-line tool is organized into several sub-commands to manage the lifecycle of test creation.
 
-*   `autotestia`: Main command to generate questions from documents or instructions.
-*   `autotestia_split`: Command to split an existing Markdown question file into multiple smaller files.
-*   `autotestia_correct_pexams`: Command to correct pexams scans.
-*   `autotestia_correct_rexams`: Command to correct R/exams NOPS scans.
+**Core Workflow:**
 
-### `autotestia`: Generate questions from a document or instructions
+1.  **`generate`**: Create a new set of questions from a document or instructions. This produces a human-readable `questions.md` file for manual review and a `metadata.tsv` file that tracks all question data.
+2.  **(Manual Step)**: Edit the `questions.md` file to correct, improve, add, or delete questions.
+3.  **`export <format>`**: Read the (potentially edited) `questions.md` and its corresponding `metadata.tsv` to export the final questions into a specific format like Moodle XML, pexams, Wooclap, etc.
 
-1.  **Generate from Document:**
-    ```bash
-    autotestia <input_material_path> [options]
-    ```
-    Use this mode to generate questions from a source document.
+**Other Commands:**
 
-2.  **Generate from Instructions:**
-    ```bash
-    autotestia --generator-instructions "Create questions about..." [options]
-    ```
-    Use this mode when you don't have a specific document but want to generate questions based on a topic or instructions. The `input_material_path` argument is omitted.
+*   `autotestia split`: Split a test into multiple smaller tests. This is useful for creating two exams (e.g. final and make-up) from the same set of questions. While this could also be done manually, using the command ensures that the final `.tsv` file is updated to contain the metainformation from the complete lifecycle of the questions.
+*   `autotestia merge`: Combine multiple tests into a single one. This is useful for merging questions from different topics into a single exam. Similar to `split`, using the command ensures that the final `.tsv` is updated to contain the metainformation from the complete lifecycle of the questions.
+*   `autotestia shuffle`: Shuffle questions in a markdown file.
+*   `autotestia correct`: Correct scanned exam sheets, with sub-commands for `pexams` and `rexams`.
+*   `autotestia test`: Run a full pipeline test to check for runtime errors.
 
-3.  **Resume from Markdown:**
-    ```bash
-    autotestia --resume-from-md <existing_markdown_path> [options]
-    ```
-    Use this mode to continue processing from an existing intermediate Markdown file (e.g., after manual review or if the process was interrupted). This skips the initial generation, LLM review, and manual review steps.
+---
 
-#### Examples for `autotestia`
+### `autotestia generate`: Create questions
 
-1.  **Generate questions from PowerPoint presentation with custom instructions:**
-    ```bash
-    # Make sure OPENROUTER_API_KEY is in .env
-    autotestia path/to/presentation.pptx \
-        -n 4 \
-        --provider openrouter \
-        --generator-model google/gemini-2.5-pro \
-        --reviewer-model google/gemini-2.5-flash \
-        --evaluator-model google/gemini-2.5-flash \
-        --evaluate-initial \
-        --evaluate-reviewed \
-        --use-llm-review \
-        -f none \
-        -o generated/topic_questions.md \
-        --language Spanish \
-        --generator-instructions "Create questions about the specifics of LDA, LSA / LSI"
-    ```
-    *   Creates `generated/topic_questions.md` with 4 questions focused on specific topics.
-    *   Uses LLM review for quality assurance.
-    *   Create only the intermediate Markdown file: you will need to run the pipeline again to get the final output (see below)
+Use this command to start the process. It generates the initial set of questions from a source document or from instructions you provide.
 
-2.  **Generate questions from Markdown file with custom instructions:**
-    ```bash
-    # Make sure ANTHROPIC_API_KEY is in .env
-    autotestia path/to/course_notes.md \
-        -n 10 \
-        --provider openrouter \
-        --generator-model google/gemini-2.5-pro \
-        --reviewer-model google/gemini-2.5-flash \
-        --evaluator-model google/gemini-2.5-flash \
-        --evaluate-initial \
-        --evaluate-reviewed \
-        --use-llm-review \
-        -f none \
-        -o generated/course_questions.md \
-        --language Spanish \
-        --reviewer-model claude-sonnet-4-5 \
-        --language Spanish \
-        --generator-instructions "Create questions about the specifics of LDA, LSA / LSI"
-    ```
-    *   Creates `generated/course_questions.md` with 10 questions from course material.
-    *   Uses both generator and reviewer models for quality control and evaluation.
-
-3.  **Generate questions based only on instructions (no input file):**
-    ```bash
-    # Make sure ANTHROPIC_API_KEY is in .env
-    autotestia \
-        -n 6 \
-        -o generated/python_regex_questions.md \
-        --provider openrouter \
-        --generator-instructions "Generate multiple-choice questions specifically about Python regular expressions using the 're' module. Focus on questions requiring either synthesis (writing a regex pattern based on a description) or analysis (determining what a given regex pattern matches or does). Cover common concepts like character classes, quantifiers, grouping, anchors, lookarounds, and standard 're' functions (e.g., search, match, findall, sub)." \
-        --use-llm-review \
-        --reviewer-instructions "Ensure questions accurately test Python regex synthesis or analysis as requested. Verify the correctness of regex patterns, expected matches, and explanations. Ensure distractors are plausible but incorrect applications or interpretations of regex concepts." \
-        --language Spanish \
-        -f none
-    ```
-    *   Creates `generated/python_regex_questions.md` with 6 Python regex questions.
-    *   Uses custom instructions for both generation and review.
-    *   Questions are generated in Spanish.
-
-4.  **Resume from Markdown file and convert to Wooclap format:**
-    ```bash
-    autotestia \
-        --resume-from-md generated/questions.md \
-        -f wooclap \
-        --shuffle-questions 123 \
-        --shuffle-answers 123
-        --evaluate-final
-    ```
-    *   Parses existing `generated/questions.md` file.
-    *   Creates Wooclap-compatible output with shuffled questions and answers.
-    *   Uses fixed seed (123) for reproducible shuffling.
-
-6.  **Resume from Markdown and convert to `pexams` PDF format:**
-    ```bash
-    autotestia \
-        --resume-from-md generated/exam_questions.md \
-        -f pexams \
-        --exam-title "Sistemas Informáticos - Examen Parcial" \
-        --exam-course "Máster de ejemplo" \
-        --exam-date "2025-10-22" \
-        --exam-models 4 \
-        --shuffle-answers 123
-    ```
-    *   Parses `generated/exam_questions.md`.
-    *   Creates 4 PDF exam models using the `pexams` engine.
-
-7.  **Resume from Markdown file and convert to R/Exams format:**
-    ```bash
-    autotestia \
-        --resume-from-md generated/exam_questions.md \
-        -f rexams \
-        --rexams-title "Natural Language Processing - Final Exam" \
-        --rexams-course "Data Science Degree" \
-        --shuffle-answers 123 \
-        --log-level DEBUG \
-        --rexams-date "2025-06-05"
-    ```
-    *   Parses existing `generated/exam_questions.md` file.
-    *   Creates R/Exams format with custom title, course, and date.
-    *   Shuffles answers with fixed seed for consistency.
-
-8.  **Other example (would not use this in practice): generate questions with image input and R/exams output directly without reviewing:**
-    ```bash
-    # Make sure OPENROUTER_API_KEY is in .env
-    autotestia course_material.txt \
-        -n 3 \
-        -i diagram.png \
-        --provider openrouter \
-        --use-llm-review \
-        --skip-manual-review \
-        -f rexams \
-        -o generated/openrouter_review.md
-    ```
-    *   Uses an image input
-    *   Creates `generated/openrouter_review.md`.
-    *   Immediately creates R/exams files in `generated/rexams/`.
-
-#### Command Line Options for `autotestia`
-
-*   **Input Control:**
-    *   `input_material`: (Optional) Path to the input file (e.g., `.txt`, `.pdf`) for *new generation*. If omitted, generation relies on 
-    `--generator-instructions`. Cannot be used with `--resume-from-md`.
-    *   `--resume-from-md`: Path to an existing intermediate Markdown file to *resume processing from* (skips generation and initial review steps). 
-    Cannot be used with `input_material`.
-
-*   **Generation Input & Control (Ignored if resuming):**
-    *   `--generator-instructions`: Custom instructions to add to the generator prompt. Essential if `input_material` is omitted.
-    *   `--reviewer-instructions`: Custom instructions to add to the reviewer prompt (if LLM review is enabled).
-    *   `-i`, `--images`: Optional path(s) to image file(s).
-    *   `-n`, `--num-questions`: Number of questions to generate (default: 5).
-    *   `-o`, `--output-md`: Path for the intermediate Markdown file (default: `output/questions.md`).
-    *   `--provider`: LLM provider (choices: `openai`, `google`, `anthropic`, `replicate`, `openrouter`, `stub`, default: from `.env` or `openrouter`).
-    *   `--generator-model`: Override default generator model for the provider.
-    *   `--reviewer-model`: Override default reviewer model for the provider.
-    *   `--evaluator-model`: Override default evaluator model for the provider.
-    *   `--use-llm-review` / `--no-use-llm-review`: Enable/disable LLM-based review agent.
-    *   `--skip-manual-review`: Skip the pause for manual Markdown editing.
-    *   `--extract-doc-images`: [Experimental] Attempt to extract images from documents (requires `input_material`).
-    *   `--language`: Language for questions (default: `en`).
-*   **Output & Formatting Control:**
-    *   `-f`, `--formats`: Final output format(s) (choices: `moodle_xml`, `gift`, `wooclap`, `pexams`, `rexams`, `none`. Default: `moodle_xml gift`). Use `none` to 
-    only output the intermediate Markdown.
-    *   `--shuffle-questions [SEED]`: Shuffle the order of questions after Markdown parsing. Provide an optional integer seed for reproducibility. If 
-    seed is omitted, uses a random seed.
-    *   `--shuffle-answers [SEED]`: Shuffle the order of answers within each question. Provide an optional integer seed. If omitted or 0, shuffles 
-    randomly per run.
-    *   `--num-final-questions N`: Randomly select `N` questions from the final set (after potential shuffling). If omitted, all questions are used.
-*   **Evaluation Control:**
-    *   `--evaluator-instructions`: Custom instructions to add to the evaluator prompt.
-    *   `--evaluate-initial`: Run the evaluator on questions immediately after they are generated.
-    *   `--evaluate-reviewed`: Run the evaluator on questions after they have been processed by the reviewer agent.
-    *   `--evaluate-final`: Run the evaluator on the final set of questions (either from a resumed Markdown file or after the manual review step).
-*   **General Options:**
-    *   `--log-level`: Set logging verbosity (choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, default: `WARNING`).
-
-*   **Pexams / R/exams Options:**
-    *   `--exam-title`: Custom title for pexams or R/exams PDF output.
-    *   `--exam-course`: Custom course name for pexams or R/exams PDF output.
-    *   `--exam-date`: Custom date for pexams or R/exams PDF output.
-    *   `--exam-models`: Number of different exam models (versions) to generate.
-
-*   **Pexams Specific Options:**
-    *   `--exam-font-size`: Font size for pexams PDF output (e.g., '10pt').
-    *   `--exam-columns`: Number of columns for questions in pexams PDF (1 or 2).
-    *   `--exam-id-length`: Number of boxes for the student ID grid.
-    *   `--exam-generate-fakes N`: Generate `N` simulated scans with fake answers for testing the correction process.
-    *   `--exam-generate-references`: Generate a reference scan with correct answers for each model.
-
-### `autotestia_split`: Split a question file into multiple smaller files
-
-**Split questions into equal parts with shuffling:**
+**1. Generate from Document:**
 ```bash
-autotestia_split generated/all_questions.md \
-    --splits 0.5 0.5 \
+autotestia generate path/to/presentation.pptx -o generated/my-exam.md --num-questions 10
+```
+*   This reads `presentation.pptx` and creates two files: `generated/my-exam.md` and `generated/my-exam.tsv`.
+
+**2. Generate from Instructions:**
+```bash
+autotestia generate --generator-instructions "Create questions about Python regular expressions..." -o generated/regex-exam
+```
+*   This generates questions based on the provided instructions without needing a source file.
+
+#### Examples for `autotestia generate`
+
+**Generate questions from a PowerPoint with LLM review and evaluation:**
+```bash
+# Make sure OPENROUTER_API_KEY is in .env
+autotestia generate path/to/presentation.pptx \
+    -o generated/topic_questions.md \
+    -n 10 \
+    --provider openrouter \
+    --generator-model google/gemini-2.5-pro \
+    --reviewer-model google/gemini-2.5-flash \
+    --evaluator-model google/gemini-2.5-flash \
+    --use-llm-review \
+    --evaluate-initial \
+    --evaluate-reviewed \
+    --language Spanish \
+    --generator-instructions "Focus on topics related to LDA, LSA / LSI"
+```
+*   Creates `generated/topic_questions.md` and `generated/topic_questions.tsv`.
+*   It specifies the LLM provider as well as the specific models to use for each agent.
+*   It uses the `--use-llm-review` flag to enable the LLM-based review of the questions after generation.
+*   It uses the `--evaluate-initial` and `--evaluate-reviewed` flags to run the evaluator on the questions after generation and review.
+*   It uses the `--language` flag to set the language for the questions to Spanish.
+*   The process stops here, awaiting manual review of the `questions.md` file and a subsequent `export` command.
+*   In this example, specific generator instructions are provided to focus on topics related to LDA, LSA / LSI, but instructions can be omitted.
+
+---
+
+### `autotestia export <format>`: Convert questions to final formats
+
+After you have manually reviewed and saved the `questions.md` file, use this command to generate the final exam files. The export command is structured with subparsers for each format.
+
+**1. Export to Wooclap with shuffling:**
+```bash
+autotestia export wooclap generated/topic_questions.md \
+    --shuffle-questions 123 \
+    --shuffle-answers 123 \
+    --evaluate-final
+```
+*   Reads `generated/topic_questions.md` and `generated/topic_questions.tsv`.
+*   (automatically processeses your manual edits to update the `.tsv` file).
+*   Creates a `generated/topic_questions_wooclap.csv` file that is ready to be imported into Wooclap.
+*   It uses the `--shuffle-questions` flag to shuffle the order of the questions.
+*   It uses the `--shuffle-answers` flag to shuffle the order of the answers within each question. **This is very important for Wooclap in particular, as it does not automatically shuffle the answers for you!**
+*   It uses the `--evaluate-final` flag to run the evaluator on the final set of questions.
+
+**2. Export to `pexams` PDF format:**
+```bash
+autotestia export pexams generated/exam_questions.md \
+    --exam-title "Sistemas Informáticos - Examen Parcial" \
+    --exam-course "Máster de ejemplo" \
+    --exam-date "2025-10-22" \
+    --exam-models 4 \
+    --shuffle-answers 123
+```
+*   Creates 4 PDF exam models of the questions in `generated/exam_questions.md` using the `pexams` engine.
+*   For more information on the available arguments, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
+
+---
+
+### Command Line Options
+
+#### `autotestia generate`
+*   `input_material`: (Optional) Path to the input file (e.g., `.txt`, `.pdf`).
+*   `-o, --output-dir`: Directory to save the generated `questions.md` and `metadata.tsv` files.
+*   `--generator-instructions`: Custom instructions for the generator prompt.
+*   `--reviewer-instructions`: Custom instructions for the reviewer prompt.
+*   `-i, --images`: Optional path(s) to image file(s) to generate questions from.
+*   `-n, --num-questions`: Number of questions to generate (default: 5).
+*   `--provider`: LLM provider (`openai`, `google`, `openrouter`, etc.).
+*   `--generator-model`, `--reviewer-model`, `--evaluator-model`: Specify models for each agent.
+*   `--use-llm-review` / `--no-use-llm-review`: Enable/disable LLM-based review.
+*   `--evaluate-initial`, `--evaluate-reviewed`: Run evaluator on questions after generation/review.
+*   `--language`: Language for questions (default: `en`).
+
+#### `autotestia export <format>`
+This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`, `gift`, `none`).
+
+*   `input_md_path`: (Positional) Path to the `questions.md` file.
+*   `--shuffle-questions [SEED]`: Shuffle the order of questions.
+*   `--shuffle-answers [SEED]`: Shuffle the order of answers within each question.
+*   `--num-final-questions N`: Randomly select `N` questions.
+*   `--evaluate-final`: Run the evaluator on the final set of questions (after manual review).
+
+**`pexams` and `rexams` specific options:**
+*   `--exam-title`: Title for the exam.
+*   `--exam-course`: Course name for the exam.
+*   `--exam-date`: Date for the exam.
+*   `--exam-models`: Number of different exam versions to generate.
+*   `--exam-language`: Language for the exam: `es`, `en`, `ca`, `de`, `fr`, `it`, `pt`, `ru`, `zh`, etc.
+
+**`pexams` only options:**
+*   `--exam-font-size`: Font size for the exam.
+*   `--exam-columns`: Number of columns for the exam.
+*   `--exam-id-length`: Length of the student ID (e.g. 9 digits for DNI).
+*   `--exam-generate-fakes`: Generate fake answer sheets for the exam (used for testing the correction process).
+*   `--exam-generate-references`: Generate references for the exam (used for teachers' reference).
+
+For more information on the available arguments for `pexams`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
+
+---
+
+### `autotestia split`: Split a test into multiple smaller tests
+```bash
+autotestia split generated/all_questions.md \
+    --splits 0.5 3 -1 \
     --output-dir generated/splits \
     --shuffle-questions 123
 ```
-*   Splits `generated/all_questions.md` into two equal parts (50% each).
-*   Output files will be named `all_questions_1.md`, `all_questions_2.md` in `generated/splits/`.
-*   Questions are shuffled with seed 123 before splitting.
+*   Splits `generated/all_questions.md` into three parts:
+    - `0.5`: 50% of the questions
+    - `3`: the following 3 questions
+    - `-1`: the remaining questions
+*   Creates:
+    - `generated/splits/all_questions_1.md` (and `all_questions_1.tsv`)
+    - `generated/splits/all_questions_2.md` (and `all_questions_2.tsv`)
+    - `generated/splits/all_questions_3.md` (and `all_questions_3.tsv`)
 
-**Split with mixed proportions:**
+---
+
+### `autotestia merge`: Combine multiple tests
 ```bash
-autotestia_split all_questions.md \
-    --splits 10 0.25 -1 \
-    --output-dir output/custom_splits \
-    --shuffle-questions 123
+autotestia merge generated/splits/part_1.md generated/splits/part_2.md -o generated/part_1_all.md
 ```
-*   First file: 10 questions
-*   Second file: 25% of remaining questions (shuffled)
-*   Third file: all remaining questions
+*   Combines the questions from `part_1.md` and `part_2.md`.
+*   Creates a new questions file `generated/part_1_all.md` (and accompanying `.tsv`).
 
-### `autotestia_correct_rexams`: Correct R/exams NOPS Scans
+---
 
-The `autotestia_correct_rexams` command (wrapping `autotestia/rexams/correct_exams.py`) provides a command-line interface to automate the correction of scanned R/exams NOPS answer sheets. It wraps an R script (`autotestia/rexams/run_autocorrection.R`) that performs the core operations: scanning marks using `nops_scan()`, preparing student registration data, and evaluating exams using `nops_eval()`. 
+### `autotestia shuffle`: Shuffle a standalone markdown file
 
-This Python wrapper can also optionally handle PDF splitting and page rotation using its own image processing capabilities (OpenCV, pdf2image) if you use the `--split-pages` flag and related options, before passing the processed scan data to the R script. This provides more control over the pre-processing steps directly within Python.
+This command is a simple utility to shuffle the questions within a single `questions.md` file. It does not read or modify the `questions.tsv`, since it is not needed for this operation (the IDs do not change)
 
-By default, for the categorical marks generated by `nops_eval` (which appear in the HTML reports and a "mark" column in the CSV/RDS files), the R script uses a Spanish grading system with descriptive labels (e.g., "Suspenso Muy Deficiente", "Aprobado", "Matrícula de Honor") and percentage thresholds like `0.099, 0.199, ..., 0.949`. You can customize this or omit these marks entirely using specific command-line options.
-
-#### Examples for `autotestia_correct_rexams`:
-
-**Correct exams from PDF scans with Python processing:**
 ```bash
-# Ensure R and necessary R packages (exams, qpdf, optparse) are installed.
-autotestia_correct_rexams \
-    --all-scans-pdf generated/splits/exam_scans.pdf \
-    --student-info-csv generated/splits/student_register.csv \
-    --solutions-rds generated/splits/exam_output/exam.rds \
-    --output-path generated/splits/exam_corrected \
-    --language es \
-    --partial-eval \
-    --negative-points -0.333333 \
-    --scale-mark-to 10.0 \
-    --student-csv-id-col "Número ID" \
-    --student-csv-reg-col "DNI" \
-    --student-csv-name-col "Nom" \
-    --student-csv-surname-col "Cognoms" \
-    --student-csv-encoding UTF-8 \
-    --registration-format "%08s" \
-    --python-rotate \
-    --python-split \
-    --max-score 30 \
-    --log-level INFO \
-    --python-bw-threshold 170
+autotestia shuffle generated/my_test/questions.md --seed 42 --yes
 ```
-*   Processes PDF scans with Python-based splitting and rotation.
-*   Uses Spanish language for evaluation.
-*   Applies partial scoring with -1/3 penalty for wrong answers.
-*   Scales final marks to 10.0 scale.
-*   Customizes CSV column mappings for student data.
+*   Shuffles the questions in `questions.md` and saves the result to a new file.
+*   Uses a seed for reproducible shuffling.
+*   Uses the `--yes` flag to bypass the confirmation prompt and overwrite the file directly.
+---
 
-**Correct exams from manually corrected CSV:**
-```bash
-autotestia_correct_rexams \
-    --corrected-answers-csv generated/splits/manual_corrections.csv \
-    --solutions-rds generated/splits/exam_output/exam.rds \
-    --output-path generated/splits/manual_corrected \
-    --partial-eval \
-    --negative-points -0.333333 \
-    --max-score 30 \
-    --scale-mark-to 10.0
-```
-*   Uses pre-corrected answers from CSV file.
-*   Applies same scoring rules as above.
-*   Useful when manual correction is preferred over automated scanning.
+### `autotestia test`: Run a pipeline test
 
-**Basic correction workflow:**
+Use this command to run a full, unattended test of the core library features to ensure everything is working correctly. It does not verify the correctness of the LLM outputs, but it checks that all commands run without crashing.
+
+The test workflow is as follows:
+1.  **Generate** 3 questions using the `openrouter` provider with default models (as defined in `setup.py`).
+2.  **Generate** another 3 questions using the `openai` provider with default models (as defined in `setup.py`).
+3.  **Split** the first test into three parts.
+4.  **Merge** the split parts and the second test back into a single file.
+5.  **Shuffle** the merged file.
+6.  **Simulate manual edits** on the markdown file (changing a question ID and content).
+7.  **Export** the final questions to Wooclap, Moodle XML, and `pexams` formats.
+8.  For `pexams`, it generates simulated scan sheets.
+9.  **Correct** the simulated `pexams` scans.
+
+All artifacts from this command are saved in the `generated_test/` directory, which is ignored by git.
+
+**Example:**
 ```bash
-# Ensure R and necessary R packages (exams, qpdf, optparse) are installed.
-autotestia_correct_rexams \
-    --all-scans-pdf path/to/your/all_scans_concatenated.pdf \
-    --split-pages \
-    --student-info-csv path/to/your/student_data.csv \
-    --solutions-rds path/to/your/generated_rexams_output/exam.rds \
-    --output-path ./correction_output \
-    --language en \
-    --max-score 45 \
-    --scale-mark-to 10
+# Ensure your API keys are set in the .env file
+autotestia test --log-level INFO
 ```
 
-These commands would:
-1.  Split `all_scans_concatenated.pdf` into individual page PDFs (potentially also rotating them) within a subdirectory of `./correction_output/`.
-2.  The R script then scans these pages.
-3.  Process `student_data.csv` to match the format required by `nops_eval`.
-4.  Evaluate the exams using solutions from `exam.rds`.
-5.  Save results (e.g., `exam_corrected_results.csv`) in `./correction_output/`.
-6.  Scale the marks based on a maximum possible score of 45 to a new scale up to 10.
-7.  Generate a histogram of scores and other statistics (if `--max-score` is provided).
+---
 
-#### Command Line Options for `autotestia_correct_rexams`:
+### `autotestia correct`: Correct exam scans
 
-*   **Input Files/Directories:**
-    *   `--all-scans-pdf`: Path to a single PDF containing all scanned exam sheets (required if Python's `--split-pages` is used, or if R is to split pages).
-    *   `--student-info-csv`: Path to your CSV file containing student information. (Required)
-    *   `--solutions-rds`: Path to the `exam.rds` file generated during R/exams creation. (Required)
-    *   `--output-path`: Main directory for all outputs (e.g., `results/my_exam_corrected` will produce `results/my_exam_corrected/exam_corrected_results.csv`, etc.). (Required)
-*   **R Environment & Language:**
-    *   `--r-executable`: Path to the `Rscript` executable. If omitted, the script attempts to find it automatically.
-    *   `--language`: Language for `nops_eval` (e.g., `en`, `es`, `ca`; default: `en`).
-*   **Scanning & Evaluation Parameters:**
-    *   `--scan-thresholds`: Comma-separated pair for scan thresholds (e.g., `"0.04,0.42"`).
-    *   `--partial-eval` / `--no-partial-eval`: Enable/disable partial scoring (default: enabled).
-    *   `--negative-points`: Penalty for incorrect answers (default: -1/3).
-    *   `--max-score`: Maximum raw score of the exam (e.g., 44). Needed if you want to scale the final mark or run analysis.
-    *   `--scale-mark-to`: Target score to scale the final mark to (e.g., 10; default: 10.0).
-*   **PDF Processing Controls (Python vs R):**
-    *   `--split-pages` / `--no-split-pages` (`dest="split_pages_python_control"` in the script): Enable PDF splitting & rotation by the Python script (default: False). If True, Python converts the `--all-scans-pdf` into individual processed page PDFs (using OpenCV for rotation and `pdf2image`) in `output-path/scanned_pages/` before calling R.
-    *   `--force-split` / `--no-force-split` (`dest="force_split_python_control"` in the script): Force overwrite for PDF splitting (applies to Python splitting if `--split-pages` is on, or to R's splitting if `--split-pages` is off but R is expected to split).
-    *   `--python-rotate` / `--no-python-rotate` (`dest="python_rotate_control"` in the script): Enable actual image rotation by Python if Python's `--split-pages` is active (default: True). If False, Python splits but does not rotate.
-    *   `--rotate-scans` / `--no-rotate-scans` (`dest="rotate_scans_r_control"` in the script): Enable image rotation by R's `nops_scan` (only relevant if Python's `--split-pages` is off). (default: False)
-*   **Execution Flow Control:**
-    *   `--force-r-eval`: Force R script evaluation even if results CSV exists (default: False).
-    *   `--force-nops-scan / --no-force-nops-scan`: Force R's `nops_scan` to re-run (default: `--no-force-nops-scan`).
-*   **Consistency Check Control (Python):**
-    *   `--run-consistency-check-on-fail` / `--no-run-consistency-check-on-fail`: Run Python-based consistency check if R script fails (default: True).
-    *   `--always-run-consistency-check`: Always run Python-based consistency check after R script attempt (default: False).
-*   **Analysis Control (Python):**
-    *   `--run-analysis` / `--no-run-analysis`: Run Python-based results analysis (histogram, stats) if results CSV exists/is created (default: True).
-*   **Question Voiding (for Analysis):**
-    *   `--void-questions`: Comma-separated list of question numbers (e.g., "3,4") to remove from score calculation during analysis.
-    *   `--void-questions-nicely`: Comma-separated list of question numbers (e.g., "5,6") to void if incorrect/NA, but count if correct, during analysis.
-*   **Student CSV Customization (for R script):**
-    *   `--student-csv-id-col`: Column name for the unique student ID (e.g., username, default: "ID.Usuario").
-    *   `--student-csv-reg-col`: Column name for the registration number (ID written on the exam sheet, default: "Número.de.Identificación").
-    *   `--student-csv-name-col`: Column name for student's first name (default: "Nombre").
-    *   `--student-csv-surname-col`: Column name for student's surname (default: "Apellidos").
-    *   `--student-csv-encoding`: Encoding of your input student CSV file (default: `UTF-8`).
-    *   `--registration-format`: `sprintf`-style format string for the registration number (default: `"%08s"`).
-*   **PNG Generation Control:**
-    *   `--force-png-generation`: Force regeneration of PNGs from student HTML reports (if available) even if they already exist (default: False).
-*   **Logging Control:**
-    *   `--log-level`: Set the log level (choices: `DEBUG`, `INFO`, `WARNING`, `ERROR`, default: `INFO`).
+This command consolidates the correction workflows for both `pexams` and `rexams`.
 
-## Next Steps / TODO
+#### `autotestia correct pexams`
 
-*   Test all the output formats (only Wooclap and R/Exams have been tested so far)
-*   Test robust parsing for PDF, DOCX in `input_parser/parser.py` (only PPTX and text formats have been tested so far)
-*   Test image extraction from documents
-*   Test passing custom images for questions
-*   Add structured output support (JSON). Right now I'm using JSON, but sometimes the parsing fails.
-*   Develop evaluation metrics and agent (OE6).
-*   Explore dynamic questions (OE7) and humorous distractors (OE8).
-*   Consider adding support for self-hosted models.
-*   Refactor, e.g. shared LLM logic (client init, retry, parsing) into a utility module.
+Corrects exams generated by the `pexams` engine.
+
+**Example:**
+```bash
+autotestia correct pexams \
+    --input-path generated/my_exam_pexams_output/simulated_scans \
+    --exam-dir generated/my_exam_pexams_output \
+    --output-dir generated/my_exam_pexams_output/correction_results
+```
+
+**Options:**
+*   `--input-path`: Path to the scanned PDF or a folder of scanned images.
+*   `--exam-dir`: Path to the directory containing the generated `pexams` files (e.g., `exam_model_..._questions.json`).
+*   `--output-dir`: Directory where the correction results will be saved.
+*   `--void-questions`: Comma-separated list of question numbers to exclude from scoring.
+
+#### `autotestia correct rexams`
+> **Warning**
+> The `rexams` correction command is deprecated, and may be removed in a future version. Please use `pexams` instead.
+
+Corrects exams generated by the R/exams framework. This command is a wrapper around the original R scripts and provides extensive options for PDF processing and scoring.

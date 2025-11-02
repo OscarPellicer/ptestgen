@@ -1,7 +1,7 @@
 import json
 import random
 from typing import List, Dict, Optional
-from ..schemas import Question, EvaluationData
+from ..schemas import QuestionRecord, QuestionStage, EvaluationData
 from .. import config
 import logging
 from .base import BaseAgent
@@ -40,44 +40,43 @@ class QuestionEvaluator(BaseAgent):
         if self.use_llm and self.provider:
             logging.info(f"  Evaluator Provider: {self.llm_provider_name}, Model: {self.provider.model_name}")
 
-    def evaluate_questions(self, questions: List[Question], stage: str, custom_instructions: Optional[str] = None) -> List[Question]:
-        """Evaluates a list of questions using an LLM."""
+    def evaluate_records(self, records: List[QuestionRecord], stage: str, custom_instructions: Optional[str] = None) -> List[QuestionRecord]:
+        """Evaluates a list of QuestionRecords at a specific stage."""
         if not self.use_llm or not self.provider:
             logging.warning("LLM Evaluation is disabled. Skipping evaluation.")
-            return questions
+            return records
 
-        logging.info(f"Evaluating {len(questions)} questions (stage: {stage})...")
-        evaluated_questions = []
-        for q in tqdm(questions, desc=f"Evaluating Questions ({stage})"):
-            evaluated_q = self._apply_llm_evaluation(q, stage, custom_instructions)
-            evaluated_questions.append(evaluated_q)
+        logging.info(f"Evaluating {len(records)} records (stage: {stage})...")
+        
+        for record in tqdm(records, desc=f"Evaluating Questions ({stage})"):
+            stage_to_evaluate: Optional[QuestionStage] = None
+            if stage == 'initial' and record.generated:
+                stage_to_evaluate = record.generated
+            elif stage == 'reviewed' and record.reviewed:
+                stage_to_evaluate = record.reviewed
+            # Add 'final' stage if needed later
+            
+            if stage_to_evaluate:
+                evaluation_result = self._apply_llm_evaluation(stage_to_evaluate, custom_instructions)
+                if evaluation_result:
+                    stage_to_evaluate.evaluation = evaluation_result
+            else:
+                logging.warning(f"Could not find stage '{stage}' to evaluate for record {record.question_id}")
         
         logging.info("Evaluation complete.")
-        return evaluated_questions
+        return records
 
-    def _apply_llm_evaluation(self, question: Question, stage: str, custom_instructions: Optional[str] = None) -> Question:
-        """Uses an LLM to evaluate a single question."""
+    def _apply_llm_evaluation(self, question_stage: QuestionStage, custom_instructions: Optional[str] = None) -> Optional[EvaluationData]:
+        """Uses an LLM to evaluate a single question stage and returns EvaluationData."""
+        content_to_eval = question_stage.content
 
-        # Per user request, do not shuffle options. The model should guess the first is correct.
-        options = question.options[:] 
-
-        # The object sent to the LLM should not reveal the correct answer
-        question_dict_for_llm = {
-            "text": question.text,
-            "options": options,
-            "explanation": question.explanation
-        }
-        try:
-            question_json = json.dumps({k: v for k, v in question_dict_for_llm.items() if v is not None}, indent=2, ensure_ascii=False)
-        except TypeError as e:
-            logging.error(f"Could not serialize Question {question.id} to JSON for evaluation: {e}. Skipping.")
-            return question
+        question_json = content_to_eval.model_dump_json(indent=2)
 
         system_prompt_template = config.EVALUATION_SYSTEM_PROMPT.replace(
             '{custom_evaluator_instructions}',
             custom_instructions if custom_instructions else ""
         )
-
+        
         try:
             response_content = self.provider.evaluate_question(
                 system_prompt=system_prompt_template,
@@ -85,54 +84,29 @@ class QuestionEvaluator(BaseAgent):
             )
 
             if not response_content:
-                logging.error(f"No evaluation content received from LLM for question {question.id}.")
-                return question
+                logging.error(f"No evaluation content received from LLM.")
+                return None
 
             parsed_eval = self._parse_llm_json_response(response_content, expected_structure='evaluation_dict')
 
             if parsed_eval and isinstance(parsed_eval, dict):
-                difficulty = parsed_eval.get("difficulty_score")
-                pedagogy = parsed_eval.get("pedagogical_value")
-                clarity = parsed_eval.get("clarity")
-                plausibility = parsed_eval.get("distractor_plausibility")
-                guessed_answer_idx = parsed_eval.get("guessed_correct_answer")
-                comment = parsed_eval.get("evaluation_comment")
-                
                 evaluation_result = EvaluationData()
-
                 try:
-                    if difficulty is not None:
-                        evaluation_result.difficulty_score = round(float(difficulty), 2)
-                    if pedagogy is not None:
-                        evaluation_result.pedagogical_value = round(float(pedagogy), 2)
-                    if clarity is not None:
-                        evaluation_result.clarity_score = round(float(clarity), 2)
-                    if plausibility is not None:
-                        evaluation_result.distractor_plausibility_score = round(float(plausibility), 2)
+                    evaluation_result.difficulty_score = round(float(parsed_eval.get("difficulty_score", 0.0)), 2)
+                    evaluation_result.pedagogical_value = round(float(parsed_eval.get("pedagogical_value", 0.0)), 2)
+                    evaluation_result.clarity_score = round(float(parsed_eval.get("clarity", 0.0)), 2)
+                    evaluation_result.distractor_plausibility_score = round(float(parsed_eval.get("distractor_plausibility", 0.0)), 2)
+                    guessed_idx = parsed_eval.get("guessed_correct_answer")
+                    if guessed_idx is not None:
+                        evaluation_result.evaluator_guessed_correctly = (int(guessed_idx) == 1)
+                    evaluation_result.evaluation_comments = parsed_eval.get("evaluation_comment")
+                    return evaluation_result
                 except (ValueError, TypeError) as e:
-                    logging.warning(f"LLM returned one or more invalid scores: {e}")
-
-                if guessed_answer_idx is not None:
-                    try:
-                        # The correct answer is always at index 0. LLM provides a 1-based index.
-                        evaluation_result.evaluator_guessed_correctly = (int(guessed_answer_idx) == 1)
-                    except (ValueError, TypeError):
-                        logging.warning(f"LLM returned an invalid index for guessed answer: {guessed_answer_idx}")
-                
-                if comment and isinstance(comment, str):
-                    evaluation_result.evaluation_comments.append(comment)
-                
-                if stage == 'initial':
-                    question.initial_evaluation = evaluation_result
-                elif stage in ['reviewed', 'final']:
-                    question.reviewed_evaluation = evaluation_result
-                else:
-                    logging.warning(f"Unknown evaluation stage: {stage}")
-
+                    logging.warning(f"LLM returned one or more invalid evaluation fields: {e}")
             else:
-                logging.warning(f"Failed to parse a valid evaluation response from LLM for question {question.id}")
-
+                logging.warning(f"Failed to parse a valid evaluation response from LLM.")
+        
         except Exception as e:
-            logging.error(f"Error during LLM evaluation for question {question.id}: {e}", exc_info=True)
+            logging.error(f"Error during LLM evaluation: {e}", exc_info=True)
 
-        return question
+        return None

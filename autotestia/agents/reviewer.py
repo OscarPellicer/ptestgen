@@ -1,8 +1,6 @@
-import json
-import time
-import random
 from typing import List, Dict, Any, Optional
-from ..schemas import Question
+from ..schemas import QuestionRecord, QuestionStage, QuestionContent, ChangeMetrics
+from .. import artifacts
 from .. import config
 import logging
 from .base import BaseAgent
@@ -44,42 +42,55 @@ class QuestionReviewer(BaseAgent):
         if self.use_llm and self.provider:
             logging.info(f"  Reviewer Provider: {self.llm_provider_name}, Model: {self.provider.model_name}")
 
-    def review_questions(self, questions: List[Question], custom_instructions: Optional[str] = None) -> List[Question]:
+    def review_questions(self, records: List[QuestionRecord], custom_instructions: Optional[str] = None) -> List[QuestionRecord]:
         """
-        Reviews a list of questions based on predefined criteria and optionally LLM.
+        Reviews a list of question records.
+        Updates each record with a 'reviewed' stage and change metrics.
         """
-        logging.info(f"Reviewing {len(questions)} questions...")
-        reviewed_questions = []
-        for q_orig in tqdm(questions, desc="Reviewing Questions"):
-            q_reviewed = q_orig # Start with original
-
-            if self.use_llm:
-                q_reviewed = self._apply_llm_review(q_reviewed, custom_instructions)
-
-            reviewed_questions.append(q_reviewed)
+        logging.info(f"Reviewing {len(records)} question records...")
+        reviewed_records = []
+        for record in tqdm(records, desc="Reviewing Questions"):
+            reviewed_record = self._apply_review(record, custom_instructions)
+            reviewed_records.append(reviewed_record)
+            
         logging.info("Review complete.")
-        return reviewed_questions
+        return reviewed_records
 
-    def _apply_llm_review(self, question: Question, custom_instructions: Optional[str] = None) -> Question:
-        """Uses an LLM to review/score a question, incorporating custom instructions."""
+    def _apply_review(self, record: QuestionRecord, custom_instructions: Optional[str] = None) -> QuestionRecord:
+        """Applies rule-based and/or LLM review to a single question record."""
+        if not record.generated:
+            logging.warning(f"Question record {record.question_id} has no 'generated' stage to review. Skipping.")
+            return record
+
+        reviewed_content: Optional[QuestionContent] = None
+
+        if self.use_llm:
+            reviewed_content = self._apply_llm_review(record.generated.content, custom_instructions)
+        
+        # If no LLM review or LLM review failed, use the original content
+        if reviewed_content is None:
+            reviewed_content = record.generated.content.copy(deep=True)
+
+        # Create the new reviewed stage
+        record.reviewed = QuestionStage(content=reviewed_content)
+        
+        # Calculate changes
+        record.changes_gen_to_rev = artifacts.calculate_changes(record.generated, record.reviewed)
+        
+        return record
+
+    def _apply_llm_review(self, original_content: QuestionContent, custom_instructions: Optional[str] = None) -> Optional[QuestionContent]:
+        """Uses an LLM to review content and returns the new content, or None on failure."""
         if not self.provider:
-            logging.error(f"LLM provider not available. Skipping LLM review for question {question.id}.")
-            return question
+            logging.error(f"LLM provider not available. Skipping LLM review.")
+            return None
 
-        logging.info(f"  LLM Reviewing Question {question.id} using {self.llm_provider_name} ({self.provider.model_name})...")
+        logging.info(f"  LLM Reviewing content using {self.llm_provider_name} ({self.provider.model_name})...")
+        
+        # Pydantic v2 uses model_dump_json
+        question_json = original_content.model_dump_json(indent=2)
 
-        question_dict = {
-            "text": question.text,
-            "correct_answer": question.correct_answer,
-            "distractors": question.distractors,
-            "explanation": question.explanation
-        }
-        try:
-            question_json = json.dumps({k: v for k, v in question_dict.items() if v is not None}, indent=2, ensure_ascii=False)
-        except TypeError as e:
-            logging.error(f"Could not serialize Question {question.id} to JSON for LLM review: {e}. Skipping.")
-            return question
-
+        # Use .replace() for partial formatting to avoid KeyError
         system_prompt_template = config.REVIEW_SYSTEM_PROMPT.replace(
             '{custom_reviewer_instructions}',
             custom_instructions if custom_instructions else ""
@@ -92,8 +103,8 @@ class QuestionReviewer(BaseAgent):
             )
 
             if not response_content:
-                logging.error(f"No review content received from LLM for question {question.id}.")
-                return question
+                logging.error(f"No review content received from LLM.")
+                return None
 
             parsed_review = self._parse_llm_json_response(response_content, expected_structure='review_dict')
 
@@ -101,27 +112,17 @@ class QuestionReviewer(BaseAgent):
                 reviewed_q_data = parsed_review.get("reviewed_question")
                 if reviewed_q_data and isinstance(reviewed_q_data, dict) and all(k in reviewed_q_data for k in ["text", "correct_answer", "distractors"]):
                     # Basic validation
-                    if isinstance(reviewed_q_data.get("text"), str) and \
-                       isinstance(reviewed_q_data.get("correct_answer"), str) and \
-                       isinstance(reviewed_q_data.get("distractors"), list) and \
-                       len(reviewed_q_data.get("distractors")) == len(question.distractors):
-
-                        logging.info(f"Applying LLM suggested revisions to Question {question.id}")
-                        if question.original_details is None:
-                            question.original_details = {
-                                "text": question.text,
-                                "correct_answer": question.correct_answer,
-                                "distractors": list(question.distractors)
-                            }
-                        question.text = reviewed_q_data["text"]
-                        question.correct_answer = reviewed_q_data["correct_answer"]
-                        question.distractors = reviewed_q_data["distractors"]
+                    if isinstance(reviewed_q_data.get("distractors"), list) and \
+                       len(reviewed_q_data.get("distractors")) == len(original_content.distractors):
+                        
+                        logging.info(f"Applying LLM suggested revisions.")
+                        return QuestionContent(**reviewed_q_data)
                     else:
                         logging.warning(f"LLM returned 'reviewed_question' with invalid structure/types or distractor count: {reviewed_q_data}")
             else:
-                logging.warning(f"Failed to parse a valid review response from LLM for question {question.id}")
+                logging.warning(f"Failed to parse a valid review response from LLM.")
 
         except Exception as e:
-            logging.error(f"Error during LLM review call or processing for question {question.id}: {e}", exc_info=True)
-
-        return question 
+            logging.error(f"Error during LLM review call or processing: {e}", exc_info=True)
+        
+        return None 

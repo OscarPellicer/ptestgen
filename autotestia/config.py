@@ -17,6 +17,15 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+PROVIDER_API_KEY_MAP = {
+    "openai": "OPENAI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "replicate": "REPLICATE_API_TOKEN",
+    "openrouter": "OPENROUTER_API_KEY",
+    # ollama is local, no key needed
+}
+
 # Ollama Configuration
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
