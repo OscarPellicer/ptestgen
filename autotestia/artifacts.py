@@ -9,7 +9,7 @@ from typing import List, Dict, Optional
 
 from Levenshtein import distance
 
-from .schemas import QuestionRecord, QuestionContent, ChangeMetrics, QuestionStage, EvaluationData
+from .schemas import QuestionRecord, QuestionStageContent, QuestionContent, ChangeMetrics, EvaluationData
 
 METADATA_FILENAME = "metadata.tsv"
 QUESTIONS_FILENAME = "questions.md"
@@ -22,8 +22,8 @@ METADATA_COLUMNS = [
     # Reviewed Stage
     "reviewed_text", "reviewed_answers_json",
     "reviewed_eval_difficulty", "reviewed_eval_pedagogy", "reviewed_eval_clarity", "reviewed_eval_distractors", "reviewed_eval_comments", "reviewed_eval_guessed_correctly",
-    # Manual Stage
-    "manual_text", "manual_answers_json",
+    # Final Stage
+    "final_text", "final_answers_json",
     # Changes Gen -> Rev
     "changes_gen_rev_status", "changes_gen_rev_lev_question", "changes_gen_rev_lev_answers", "changes_gen_rev_rel_lev_question", "changes_gen_rev_rel_lev_answers",
     # Changes Rev -> Man
@@ -96,17 +96,17 @@ def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
             row["reviewed_eval_comments"] = _escape_tsv_field(eval_data.evaluation_comments)
             row["reviewed_eval_guessed_correctly"] = str(eval_data.evaluator_guessed_correctly or "")
 
-    # --- Manual Stage ---
-    if record.manual:
-        content = record.manual.content
-        row["manual_text"] = _escape_tsv_field(content.text)
+    # --- Final Stage ---
+    if record.final:
+        content = record.final.content
+        row["final_text"] = _escape_tsv_field(content.text)
         answers = {
             "correct": content.correct_answer,
             "distractors": content.distractors,
             "explanation": content.explanation or ""
         }
-        row["manual_answers_json"] = json.dumps(answers, ensure_ascii=False)
-        # Note: manual stage doesn't have its own evaluation in this model
+        row["final_answers_json"] = json.dumps(answers, ensure_ascii=False)
+        # Note: final stage doesn't have its own evaluation in this model
 
     # --- Changes Gen -> Rev ---
     if record.changes_gen_to_rev:
@@ -149,6 +149,16 @@ def write_questions_md(records: List[QuestionRecord], output_path: str):
             content = record.get_latest_content()
             if content:
                 f.write(f"## {record.question_id}\n")
+                
+                # Add image reference if it exists
+                if record.image_reference:
+                    # Make path relative to the markdown file for portability
+                    md_dir = os.path.dirname(os.path.abspath(output_path))
+                    relative_path = os.path.relpath(os.path.abspath(record.image_reference), md_dir)
+                    # On Windows, relpath can produce backslashes, which need to be forward slashes for markdown
+                    relative_path = relative_path.replace("\\", "/")
+                    f.write(f"> ![Image for question]({relative_path})\n\n")
+
                 f.write(f"{content.text}\n\n")
                 
                 f.write(f"* {content.correct_answer}\n")
@@ -223,15 +233,15 @@ def _deserialize_record(row: Dict[str, str]) -> QuestionRecord:
 
     gen_content = _create_content('generated_text', 'generated_answers_json')
     if gen_content:
-        record.generated = QuestionStage(content=gen_content, evaluation=_create_evaluation('generated'))
+        record.generated = QuestionStageContent(content=gen_content, evaluation=_create_evaluation('generated'))
 
     rev_content = _create_content('reviewed_text', 'reviewed_answers_json')
     if rev_content:
-        record.reviewed = QuestionStage(content=rev_content, evaluation=_create_evaluation('reviewed'))
+        record.reviewed = QuestionStageContent(content=rev_content, evaluation=_create_evaluation('reviewed'))
         
-    man_content = _create_content('manual_text', 'manual_answers_json')
-    if man_content:
-        record.manual = QuestionStage(content=man_content)
+    final_content = _create_content('final_text', 'final_answers_json')
+    if final_content:
+        record.final = QuestionStageContent(content=final_content)
 
     # --- Deserialize Change Metrics ---
     if row.get("changes_gen_rev_status"):
@@ -304,6 +314,15 @@ def read_questions_md(path: str) -> Dict[str, QuestionContent]:
         
         content_lines = lines[1:]
         
+        # Check for and extract a quoted image line
+        image_path = None
+        if content_lines and content_lines[0].strip().startswith('>'):
+            img_match = re.search(r'!\[.*\]\((.*)\)', content_lines[0])
+            if img_match:
+                image_path = img_match.group(1).strip()
+                # Remove the image line from the content
+                content_lines = content_lines[1:]
+
         first_answer_idx = -1
         for i, line in enumerate(content_lines):
             if line.strip().startswith(('*', '-', '1.')):
@@ -344,12 +363,13 @@ def read_questions_md(path: str) -> Dict[str, QuestionContent]:
             text=question_text,
             correct_answer=answers[0],
             distractors=answers[1:],
-            explanation="\n".join(explanation_lines).strip() or None
+            explanation="\n".join(explanation_lines).strip() or None,
+            image_reference=image_path
         )
         
     return questions
 
-def calculate_changes(old_stage: QuestionStage, new_stage: QuestionStage) -> ChangeMetrics:
+def calculate_changes(old_stage: QuestionStageContent, new_stage: QuestionStageContent) -> ChangeMetrics:
     """Calculates change metrics between two stages of a question."""
     old_content = old_stage.content
     new_content = new_stage.content
@@ -398,17 +418,25 @@ def synchronize_artifacts(records: List[QuestionRecord], md_questions: Dict[str,
             # Question exists, check for modifications
             manual_content = md_questions[record.question_id]
             latest_content = record.get_latest_content()
+
             
+            record.final = QuestionStageContent(content=manual_content)
+
             if manual_content != latest_content:
                 logging.info(f"Question '{record.question_id}' modified during manual review.")
-                record.manual = QuestionStage(content=manual_content)
                 if record.reviewed:
-                    record.changes_rev_to_man = calculate_changes(record.reviewed, record.manual)
+                    record.changes_rev_to_man = calculate_changes(record.reviewed, record.final)
                 elif record.generated:
                     # This case implies no review stage was run
                     # For now, let's compare manual vs generated
                     # We might need a new ChangeMetrics field for this
-                    pass 
+                    pass
+            else:
+                # Still calculate changes to mark as "unchanged" if necessary
+                if record.reviewed:
+                    record.changes_rev_to_man = calculate_changes(record.reviewed, record.final)
+
+
             final_records.append(record)
 
     # Add new questions that were manually added to the markdown
@@ -419,7 +447,7 @@ def synchronize_artifacts(records: List[QuestionRecord], md_questions: Dict[str,
         new_record = QuestionRecord(
             question_id=new_id,
             source_material="manual_addition",
-            manual=QuestionStage(content=manual_content),
+            final=QuestionStageContent(content=manual_content),
             # Mark previous stages as "non-existent" or similar
             changes_rev_to_man=ChangeMetrics(status="added")
         )

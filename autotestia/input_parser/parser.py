@@ -40,15 +40,13 @@ except ImportError:
     Image = None
     # No warning needed here yet, as it's only for explicit image inputs for now
 
-def parse_input_material(file_path: str, extract_images: bool = False) -> Tuple[str, list]:
+def parse_input_material(file_path: str) -> Tuple[str, list]:
     """
     Parses the input material file and returns its text content.
     Optionally extracts images found within the document (functionality not implemented yet).
 
     Args:
         file_path (str): Path to the input document.
-        extract_images (bool): If True, attempt to extract images from the document
-                               (currently only returns placeholder info). Defaults to False.
 
     Returns:
         Tuple[str, list]: A tuple containing:
@@ -84,18 +82,6 @@ def parse_input_material(file_path: str, extract_images: bool = False) -> Tuple[
                         page_text = page.extract_text()
                         if page_text:
                              text_parts.append(page_text)
-                        # --- Placeholder for Image Extraction ---
-                        if extract_images:
-                            # pypdf can extract images, but it's complex to map them
-                            # back to text locations reliably.
-                            # For now, just note that images might exist.
-                             count = 0
-                             for image_file_object in page.images:
-                                 count += 1
-                                 # In future: save image_file_object.data to a file
-                                 # image_references.append(f"extracted_image_{i}_{count}.{image_file_object.name.split('.')[-1]}")
-                             if count > 0:
-                                 logging.debug(f"Found {count} image objects on PDF page {i+1} (extraction not implemented).")
                     text_content = "\n".join(text_parts)
                     logging.info(f"Successfully parsed PDF file using pypdf. Extracted {len(text_content)} characters.")
                 except Exception as e:
@@ -117,10 +103,6 @@ def parse_input_material(file_path: str, extract_images: bool = False) -> Tuple[
                                      text_parts.append(cell_text) # Append cell text as separate paragraph
                     text_content = "\n".join(text_parts)
                     logging.info(f"Successfully parsed DOCX file using python-docx. Extracted {len(text_content)} characters.")
-                    # --- Placeholder for Image Extraction ---
-                    if extract_images:
-                        logging.debug("DOCX image extraction not implemented yet.")
-                        # Requires iterating through shapes/inline_shapes and saving image data
                 except Exception as e:
                      logging.error(f"Error parsing DOCX file '{file_path}' with python-docx: {e}", exc_info=True)
             else:
@@ -145,11 +127,6 @@ def parse_input_material(file_path: str, extract_images: bool = False) -> Tuple[
                                          cell_text = cell.text_frame.text.strip()
                                          if cell_text:
                                              text_parts.append(cell_text)
-                            # --- Placeholder for Image Extraction ---
-                            if extract_images and hasattr(shape, 'image'):
-                                logging.debug("PPTX image extraction not implemented yet.")
-                                # Would involve saving shape.image.blob
-
                     text_content = "\n".join(text_parts)
                     logging.info(f"Successfully parsed PPTX file using python-pptx. Extracted {len(text_content)} characters.")
                 except Exception as e:
@@ -164,9 +141,6 @@ def parse_input_material(file_path: str, extract_images: bool = False) -> Tuple[
                          rtf_content = f.read()
                      text_content = rtf_to_text(rtf_content)
                      logging.info(f"Successfully parsed RTF file using striprtf. Extracted {len(text_content)} characters.")
-                     # Image extraction from RTF is generally complex and not supported by striprtf
-                     if extract_images:
-                         logging.debug("RTF image extraction is not supported.")
                  except Exception as e:
                      logging.error(f"Error parsing RTF file '{file_path}' with striprtf: {e}", exc_info=True)
             else:
@@ -240,11 +214,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Extract text from a document.")
     parser.add_argument("file_path", help="Path to the input document file.")
-    parser.add_argument(
-        "--extract-images",
-        action="store_true",
-        help="Attempt to extract images (currently placeholder functionality)."
-    )
 
     if len(sys.argv) == 1: # No arguments provided
         parser.print_help(sys.stderr)
@@ -253,7 +222,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     try:
-        text_content, image_refs = parse_input_material(args.file_path, args.extract_images)
+        text_content, image_refs = parse_input_material(args.file_path)
         if text_content:
             print("\n--- Extracted Text ---")
             print(text_content)
@@ -264,13 +233,7 @@ if __name__ == "__main__":
             print("\n--- Image References ---")
             for ref in image_refs:
                 print(ref)
-        elif args.extract_images:
-            print("\nNo images were extracted or found (or feature not fully implemented).")
-
     except FileNotFoundError as e:
-        logging.error(e)
-        sys.exit(1)
-    except ValueError as e: # For unsupported image types in parse_image_input, if used
         logging.error(e)
         sys.exit(1)
     except Exception as e:

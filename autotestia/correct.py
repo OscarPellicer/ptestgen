@@ -7,6 +7,7 @@ from pathlib import Path
 from pexams.correct_exams import correct_exams
 from pexams.analysis import analyze_results
 from pexams.schemas import PexamExam
+import pandas as pd
 
 # Import for rexams, will be used later
 from autotestia.rexams.correct_exams import run_correction_script, analyze_results, check_student_data_consistency
@@ -50,13 +51,23 @@ def _handle_pexams(args):
     correction_success = correct_exams(
         input_path=args.input_path,
         solutions_per_model=solutions_per_model,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        questions_dir=args.exam_dir
     )
     
     if correction_success:
         logging.info("Correction finished. Starting analysis.")
         results_csv = os.path.join(args.output_dir, "correction_results.csv")
         if os.path.exists(results_csv):
+            # Workaround for pexams API change: rename 'score' column to 'points'
+            try:
+                df = pd.read_csv(results_csv)
+                if 'score' in df.columns and 'points' not in df.columns:
+                    df.rename(columns={'score': 'points'}, inplace=True)
+                    df.to_csv(results_csv, index=False)
+                    logging.info("Renamed 'score' column to 'points' for compatibility.")
+            except Exception as e:
+                logging.error(f"Failed to patch results CSV file: {e}", exc_info=True)
             analyze_results(
                 csv_filepath=results_csv,
                 max_score=max_score,

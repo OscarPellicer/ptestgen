@@ -53,7 +53,6 @@ REVIEWER_MODEL_MAP = { # Potentially use a cheaper model for review
     "stub": "stub-reviewer-model"
 }
 
-# TODO: Add Evaluator Model Map (OE6)
 EVALUATOR_MODEL_MAP = { # Potentially use a cheaper model for review
     "openai": os.getenv("OPENAI_EVALUATOR_MODEL", "gpt-4o"),
     "google": os.getenv("GOOGLE_EVALUATOR_MODEL", "gemini-2.5-flash"),
@@ -98,8 +97,7 @@ DEFAULT_LANGUAGE = "Spanish"
 # --- Prompting ---
 # Basic prompt templates (can be refined)
 GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. If the question or the answer or the distractors contain any piece of code, pseudocode or use special characters, enclose it in backticks: `code`.
-For each question, generate:
+You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$; don't use $$). DO NOT use newlines in the question text, answers or distractors. For each question, provide:
 - The question text.
 - The correct answer.
 - A list of distractors.
@@ -111,8 +109,8 @@ Output the questions as a JSON object with keys: "questions" (list of objects), 
 
 IMAGE_GENERATION_SYSTEM_PROMPT = """
 You are an AI assistant specialized in creating educational multiple-choice questions based on images.
-Given the provided image and optional context text, generate ONE multiple-choice question that requires understanding the image content.
-Do not add a period at the end of the correct answer nor at the end of the distractors.
+Given the provided image and optional context text, generate ONE multiple-choice question that requires understanding the image content. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$; don't use $$).
+DO NOT use newlines in the question text, answers or distractors.
 Provide:
 - The question text.
 - The correct answer.

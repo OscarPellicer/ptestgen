@@ -11,10 +11,9 @@ from .input_parser import parser
 from .agents.generator import QuestionGenerator
 from .agents.reviewer import QuestionReviewer
 from .agents.evaluator import QuestionEvaluator
-from .output_formatter import converters
+from .output_formatter import (gift_converter, moodle_xml_converter, pexams_converter, 
+                               rexams_converter, wooclap_converter)
 from .rexams import generate_exams as rexams_wrapper
-import pexams
-from .output_formatter import pexams_adapter
 from . import artifacts
 
 # The old Question dataclass is needed for compatibility with existing converters.
@@ -91,7 +90,6 @@ class AutoTestIAPipeline:
                  output_md_path: str = "generated_questions.md",
                  output_tsv_path: str = "generated_questions.tsv",
                  num_questions: int = config.DEFAULT_NUM_QUESTIONS,
-                 extract_images_from_doc: bool = False,
                  language: str = config.DEFAULT_LANGUAGE,
                  generator_instructions: Optional[str] = None,
                  reviewer_instructions: Optional[str] = None,
@@ -111,7 +109,7 @@ class AutoTestIAPipeline:
             logging.info(f"Parsing input material: {input_material_path}")
             try:
                 # NOTE: Image extraction from docs is not fully supported in this refactor pass
-                text_content, _ = parser.parse_input_material(input_material_path, extract_images=extract_images_from_doc)
+                text_content, _ = parser.parse_input_material(input_material_path)
             except Exception as e:
                 logging.error(f"Failed to parse input material {input_material_path}: {e}", exc_info=True)
                 sys.exit(1)
@@ -134,7 +132,8 @@ class AutoTestIAPipeline:
             image_records = self.generator.generate_questions_from_images(
                 image_paths=image_paths,
                 context_text=text_content, # Provide text as context
-                custom_instructions=generator_instructions
+                custom_instructions=generator_instructions,
+                language=language
             )
             if image_records:
                 print(f"Generated {len(image_records)} questions from images.")
@@ -154,10 +153,11 @@ class AutoTestIAPipeline:
         # 3. Initial Evaluation
         if evaluate_initial:
             print("\nStep 3: Evaluating initial questions...")
-            question_records = self.evaluator.evaluate_records(
+            self.evaluator.evaluate_records(
                 question_records,
-                stage='initial',
-                custom_instructions=evaluator_instructions
+                stage=QuestionStage.GENERATED,
+                custom_instructions=evaluator_instructions,
+                language=language
             )
             print("Initial evaluation complete.")
         else:
@@ -174,10 +174,11 @@ class AutoTestIAPipeline:
         # 5. Reviewed Evaluation
         if evaluate_reviewed:
             print("\nStep 5: Evaluating reviewed questions...")
-            question_records = self.evaluator.evaluate_records(
+            self.evaluator.evaluate_records(
                 question_records,
-                stage='reviewed',
-                custom_instructions=evaluator_instructions
+                stage=QuestionStage.REVIEWED,
+                custom_instructions=evaluator_instructions,
+                language=language
             )
             print("Reviewed evaluation complete.")
         else:
@@ -211,12 +212,27 @@ class AutoTestIAPipeline:
                id_length: int = 10,
                generate_fakes: int = 0,
                generate_references: bool = False,
-               evaluate_final: bool = False
+               evaluate_final: bool = False,
+               evaluator_instructions: Optional[str] = None,
+               max_image_width: Optional[int] = None,
+               max_image_height: Optional[int] = None
                ):
         """
         Runs the export part of the pipeline.
         """
         print(f"\n--- Starting Export Pipeline from {input_md_path} ---")
+
+        if evaluate_final:
+            print("\nEvaluating final questions...")
+            self.evaluator.evaluate_records(
+                records_to_export,
+                stage=QuestionStage.FINAL,
+                custom_instructions=evaluator_instructions,
+                language=language
+            )
+            print("Final evaluation complete.")
+        else:
+            print("\nEvaluating final questions... (Skipped)")
         
         questions_for_conversion = records_to_export
 
@@ -250,21 +266,21 @@ class AutoTestIAPipeline:
 
         if 'moodle_xml' in output_formats:
             moodle_path = os.path.join(output_dir_for_conversions, f"{base_filename}_moodle.xml")
-            converters.convert_to_moodle_xml(questions_for_conversion, moodle_path)
+            moodle_xml_converter.convert_to_moodle_xml(records=questions_for_conversion, output_file=moodle_path)
 
         if 'gift' in output_formats:
             gift_path = os.path.join(output_dir_for_conversions, f"{base_filename}.gift")
-            converters.convert_to_gift(questions_for_conversion, gift_path)
+            gift_converter.convert_to_gift(records=questions_for_conversion, output_file=gift_path)
 
         if 'wooclap' in output_formats:
             wooclap_path = os.path.join(output_dir_for_conversions, f"{base_filename}_wooclap.csv")
-            converters.convert_to_wooclap(questions_for_conversion, wooclap_path)
+            wooclap_converter.convert_to_wooclap(records=questions_for_conversion, output_file=wooclap_path)
 
         if 'rexams' in output_formats:
             logger.warning("The 'rexams' format is deprecated and will be removed in a future version. Please consider using 'pexams' instead, which is a pure Python solution and does not require R and LaTeX.")
             rexams_rmd_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_rexams_rmd")
             os.makedirs(rexams_rmd_dir, exist_ok=True)
-            converters.prepare_for_rexams(questions_for_conversion, rexams_rmd_dir)
+            rexams_converter.prepare_for_rexams(records=questions_for_conversion, output_dir=rexams_rmd_dir)
             
             rexams_pdf_output_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_rexams_pdf_output")
             os.makedirs(rexams_pdf_output_dir, exist_ok=True)
@@ -287,7 +303,12 @@ class AutoTestIAPipeline:
             pexams_output_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_pexams_output")
             os.makedirs(pexams_output_dir, exist_ok=True)
             
-            pexam_questions = pexams_adapter.convert_autotestia_to_pexam(questions_for_conversion)
+            pexam_questions = pexams_converter.convert_autotestia_to_pexam(
+                records=questions_for_conversion,
+                input_md_path=input_md_path,
+                max_image_width=max_image_width,
+                max_image_height=max_image_height
+            )
 
             from pexams import generate_exams
             generate_exams.generate_exams(
@@ -302,8 +323,11 @@ class AutoTestIAPipeline:
                 id_length=id_length,
                 lang=language,
                 generate_fakes=generate_fakes,
-                generate_references=generate_references
+                generate_references=generate_references,
+                keep_html=True #Useful for debugging
             )
+            import pprint
             print(f"Pexams outputs generated in: {os.path.abspath(pexams_output_dir)}")
+            # print(f"Pexams questions: {pprint.pformat(questions_for_conversion)}")
 
         print("\n--- Export Pipeline Finished ---") 

@@ -1,7 +1,5 @@
-import json
-import random
 from typing import List, Dict, Optional
-from ..schemas import QuestionRecord, QuestionStage, EvaluationData
+from ..schemas import QuestionRecord, QuestionStage, EvaluationData, QuestionContent
 from .. import config
 import logging
 from .base import BaseAgent
@@ -40,35 +38,46 @@ class QuestionEvaluator(BaseAgent):
         if self.use_llm and self.provider:
             logging.info(f"  Evaluator Provider: {self.llm_provider_name}, Model: {self.provider.model_name}")
 
-    def evaluate_records(self, records: List[QuestionRecord], stage: str, custom_instructions: Optional[str] = None) -> List[QuestionRecord]:
-        """Evaluates a list of QuestionRecords at a specific stage."""
-        if not self.use_llm or not self.provider:
-            logging.warning("LLM Evaluation is disabled. Skipping evaluation.")
-            return records
-
-        logging.info(f"Evaluating {len(records)} records (stage: {stage})...")
-        
-        for record in tqdm(records, desc=f"Evaluating Questions ({stage})"):
-            stage_to_evaluate: Optional[QuestionStage] = None
-            if stage == 'initial' and record.generated:
-                stage_to_evaluate = record.generated
-            elif stage == 'reviewed' and record.reviewed:
-                stage_to_evaluate = record.reviewed
-            # Add 'final' stage if needed later
+    def evaluate_records(self, 
+                        records: List[QuestionRecord], 
+                        stage: QuestionStage, 
+                        custom_instructions: Optional[str] = None, 
+                        language: str = config.DEFAULT_LANGUAGE
+                        ) -> List[QuestionRecord]:
+        """
+        Evaluates a list of QuestionRecord objects at a specified stage.
+        """
+        for record in tqdm(records, desc=f"Evaluating Questions ({stage.value})"):
             
-            if stage_to_evaluate:
-                evaluation_result = self._apply_llm_evaluation(stage_to_evaluate, custom_instructions)
-                if evaluation_result:
-                    stage_to_evaluate.evaluation = evaluation_result
-            else:
-                logging.warning(f"Could not find stage '{stage}' to evaluate for record {record.question_id}")
-        
-        logging.info("Evaluation complete.")
+            stage_to_evaluate = None
+            if stage == QuestionStage.FINAL:
+                stage_to_evaluate = record.final
+            elif stage == QuestionStage.REVIEWED:
+                stage_to_evaluate = record.reviewed
+            elif stage == QuestionStage.GENERATED:
+                stage_to_evaluate = record.generated
+            
+            if not stage_to_evaluate:
+                logging.warning(f"Could not find stage '{stage.value}' to evaluate for record {record.question_id}")
+                continue
+
+            evaluation_result = self.evaluate(
+                question_content=stage_to_evaluate.content,
+                custom_instructions=custom_instructions,
+                language=language
+            )
+            if evaluation_result:
+                stage_to_evaluate.evaluation = evaluation_result
         return records
 
-    def _apply_llm_evaluation(self, question_stage: QuestionStage, custom_instructions: Optional[str] = None) -> Optional[EvaluationData]:
-        """Uses an LLM to evaluate a single question stage and returns EvaluationData."""
-        content_to_eval = question_stage.content
+    def evaluate(self, 
+                 question_content: QuestionContent, 
+                 custom_instructions: Optional[str] = None, 
+                 language: str = config.DEFAULT_LANGUAGE) -> Optional[EvaluationData]:
+        """
+        Evaluates a single QuestionContent object.
+        """
+        content_to_eval = question_content
 
         question_json = content_to_eval.model_dump_json(indent=2)
 
@@ -76,6 +85,7 @@ class QuestionEvaluator(BaseAgent):
             '{custom_evaluator_instructions}',
             custom_instructions if custom_instructions else ""
         )
+        system_prompt_template += f"\nMake sure that the question and the answers are in the following language: {language}. If not, translate them to the correct language."
         
         try:
             response_content = self.provider.evaluate_question(

@@ -16,7 +16,7 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   Anthropic (e.g., Claude 4.5 Sonnet, Claude 4.5 Haiku): *Discouraged due to structured output not being supported.*
     *   Replicate (e.g., Llama 3.2): *Discouraged due to structured output not being supported.*
 *   **Flexible Input:**
-    *   **Document-Based Generation (OE1):** Generate questions from text documents (**TXT, MD, PDF, DOCX, PPTX, RTF supported for text extraction**) and images (PNG, JPG, GIF, BMP). PDF/DOCX/PPTX parsing requires installing optional dependencies. Image extraction *from within documents* is experimental.
+    *   **Document-Based Generation (OE1):** Generate questions from text documents (**TXT, MD, PDF, DOCX, PPTX, RTF supported for text extraction**) and images (PNG, JPG, GIF, BMP). PDF/DOCX/PPTX parsing requires installing optional dependencies.
     *   **Instruction-Based Generation:** Generate questions based on specific instructions provided via the command line, without requiring an input document.
 *   **Customizable Prompts:** Add custom instructions to the underlying LLM prompts for generation and review using `--generator-instructions` and `--reviewer-instructions`.
 *   **Automated Review (OE2):** An LLM-based agent refines questions for clarity, correctness, and adherence to pedagogical best practices.
@@ -25,14 +25,14 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   **Pedagogical Value:** How well it tests key concepts.
     *   **Clarity:** How clear the question and options are.
     *   **Distractor Plausibility:** How convincing the incorrect answers are.
-*   **Manual Review Workflow (OE3):** Outputs questions in a clean Markdown format for easy verification and editing by the educator. Can be skipped via CLI flag.
-*   **Format Conversion (OE4):** Converts the finalized questions into formats compatible with Moodle (XML/GIFT), Wooclap, pexams (PDF), and R/exams (.Rmd structure).
+    *   It also tracks the changes made to the questions and answers after each of the three stages: generation, automatic review, and manual review.
+*   **Manual Review Workflow (OE3):** Outputs questions in a clean Markdown format for easy verification and editing by the educator. See [Manual review of the questions](#manual-review-of-the-questions) for more information on what formatting options are supported.
+*   **Format Conversion (OE4):** Converts the finalized questions into formats compatible with Moodle (XML/GIFT, *GIFT recommended for Moodle*), Wooclap, pexams (PDF), ~~and R/exams~~ (deprecated in favor of pexams).
 *   **Question Shuffling & Selection:**
     *   Shuffle the order of generated questions (`--shuffle-questions`).
     *   Shuffle the order of answers within each question (`--shuffle-answers`).
     *   Select a random subset of the final questions (`--num-final-questions`).
 *   **Integrated Pipeline (OE5):** A cohesive Python script orchestrates the entire process.
-*  **Evaluation Agent (OE6)**
 *   *(Future)* Dynamic Question Support (OE7)
 *   *(Future)* Humorous Distractor Option (OE8)
 
@@ -135,7 +135,7 @@ The `autotestia` command-line tool is organized into several sub-commands to man
 
 1.  **`generate`**: Create a new set of questions from a document or instructions. This produces a human-readable `questions.md` file for manual review and a `metadata.tsv` file that tracks all question data.
 2.  **(Manual Step)**: Edit the `questions.md` file to correct, improve, add, or delete questions.
-3.  **`export <format>`**: Read the (potentially edited) `questions.md` and its corresponding `metadata.tsv` to export the final questions into a specific format like Moodle XML, pexams, Wooclap, etc.
+3.  **`export <format>`**: Read the (potentially edited) `questions.md` and its corresponding `metadata.tsv` to export the final questions into a specific format like Moodle GIFT, pexams, Wooclap, etc.
 
 **Other Commands:**
 
@@ -188,6 +188,30 @@ autotestia generate path/to/presentation.pptx \
 *   It uses the `--language` flag to set the language for the questions to Spanish.
 *   The process stops here, awaiting manual review of the `questions.md` file and a subsequent `export` command.
 *   In this example, specific generator instructions are provided to focus on topics related to LDA, LSA / LSI, but instructions can be omitted.
+
+---
+
+### Manual review of the questions
+
+After the questions have been generated, you may want to manually review them and edit them to your liking. You can do this by editing the `questions.md` file. You can add, remove, or edit questions and answers. Here is an example of all formatting options that are supported:
+
+```markdown
+## question_id
+> ![Image for question](image.png)
+¿What is the *mathematical solution* for the following **Python expression**: `sum(range(10))`?
+ * $\sum_{i=1}^{10} i = \frac{10(10+1)}{2} = 55$
+ * *Wrong answer 1*
+ * *Wrong answer 2*
+ * *Wrong answer 3*
+```
+
+Important notes:
+ - A single image per question is supported, but it must appear before the question text, and must be included within a blockquote: `> ![Image for question](image.png)`: Make sure to include the image path relative to the `questions.md` file, or just use the image filename if it is in the same directory.
+ - $LaTeX$ is supported, but must be enclosed in `$` delimiters. Do not use `$$` or `\(` for LaTeX.
+ - *Italics* and **bold** text are supported, but must be enclosed in `*` or `**` delimiters. Do not use `_` for italics
+ - `code` is supported, but must be enclosed in single backticks: `` ` ``. Text blocks enclosed in triple backticks (`` ``` ``) are not supported.
+ - Newlines are NOT supported.
+ - The question ID must be unique.
 
 ---
 

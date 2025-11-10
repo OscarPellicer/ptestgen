@@ -4,7 +4,7 @@ import json
 import time
 import random # Needed for shuffling options in stub
 from typing import List, Optional, Any, Dict
-from ..schemas import QuestionRecord, QuestionContent, QuestionStage
+from ..schemas import QuestionRecord, QuestionContent, QuestionStage, QuestionStageContent
 from .. import config
 from .. import artifacts
 import logging # Use logging
@@ -130,7 +130,7 @@ class QuestionGenerator(BaseAgent):
                          record = QuestionRecord(
                              question_id=artifacts.generate_question_id(source_material_path),
                              source_material=source_material_path or "custom_instructions",
-                             generated=QuestionStage(content=content)
+                             generated=QuestionStageContent(content=content)
                          )
                          records.append(record)
                      else:
@@ -148,7 +148,8 @@ class QuestionGenerator(BaseAgent):
                                        image_paths: List[str],
                                        context_text: Optional[str] = None,
                                        num_options: int = config.DEFAULT_NUM_OPTIONS,
-                                       custom_instructions: Optional[str] = None) -> List[QuestionRecord]:
+                                       custom_instructions: Optional[str] = None,
+                                       language: str = config.DEFAULT_LANGUAGE) -> List[QuestionRecord]:
         """Generates one question for each image provided."""
         records = []
         if not image_paths:
@@ -160,7 +161,8 @@ class QuestionGenerator(BaseAgent):
                 image_path=image_path,
                 context_text=context_text,
                 num_options=num_options,
-                custom_instructions=custom_instructions
+                custom_instructions=custom_instructions,
+                language=language
             )
             if record:
                 records.append(record)
@@ -170,7 +172,8 @@ class QuestionGenerator(BaseAgent):
                                           image_path: str,
                                           context_text: Optional[str],
                                           num_options: int,
-                                          custom_instructions: Optional[str]) -> Optional[QuestionRecord]:
+                                          custom_instructions: Optional[str],
+                                          language: str = config.DEFAULT_LANGUAGE) -> Optional[QuestionRecord]:
         """Generates a single question from an image using the configured LLM."""
         if self.llm_provider_name == "stub":
             return self._generate_stub_records(1, num_options, f"Image: {image_path}")[0]
@@ -195,7 +198,9 @@ class QuestionGenerator(BaseAgent):
             '{custom_generator_instructions}',
             custom_instructions if custom_instructions else ""
         )
-        user_prompt_text = f"Generate ONE multiple-choice question based on the provided image. It should have one correct answer and {num_distractors} distractors."
+        user_prompt_text = f"Generate ONE multiple-choice question based on the provided image."
+        user_prompt_text += f"\nEach question should have one correct answer and {num_distractors} distractors."
+        user_prompt_text += f"\nGenerate the question and the answers in the following language: {language}."
         if context_text:
             user_prompt_text += f"\n\nOptional Context:\n{context_text}"
         
@@ -220,7 +225,7 @@ class QuestionGenerator(BaseAgent):
                     question_id=artifacts.generate_question_id(image_path),
                     source_material=f"Image: {os.path.basename(image_path)}",
                     image_reference=image_path,
-                    generated=QuestionStage(content=content)
+                    generated=QuestionStageContent(content=content)
                 )
                 return record
 
@@ -244,7 +249,7 @@ class QuestionGenerator(BaseAgent):
             record = QuestionRecord(
                 question_id=artifacts.generate_question_id(source),
                 source_material=source,
-                generated=QuestionStage(content=content)
+                generated=QuestionStageContent(content=content)
             )
             records.append(record)
         return records 

@@ -14,7 +14,6 @@ load_dotenv()
 from autotestia.pipeline import AutoTestIAPipeline
 from autotestia import config # Import config AFTER dotenv load
 from autotestia import artifacts # Import artifacts module
-from autotestia.artifacts import QuestionStage, ChangeMetrics # Import QuestionStage and ChangeMetrics
 from autotestia.split import handle_split_command
 from autotestia.merge import handle_merge_command
 from autotestia.correct import handle_correct_command
@@ -37,7 +36,11 @@ def handle_test(args):
     print(f"Test artifacts will be saved in '{os.path.abspath(output_dir)}'")
 
     try:
-        instructions = "Generate multiple-choice questions specifically about Python regular expressions using the 're' module. Focus on questions requiring either synthesis or analysis. Cover concepts like character classes, quantifiers, grouping, anchors, and 're' functions (e.g., search, match, findall, sub)."
+        script_dir = os.path.dirname(__file__)
+        image_path = os.path.join(script_dir, "media", "image.jpg")
+        test_questions = 2
+
+        instructions = "This is a TEST RUN for the AutoTestIA library, a library that allows you to generate multiple-choice questions from text or images using LLms. Generate questions about Python programming. MAKE SURE to include at least one instance of all the formatting options in the questions and answers: **bold text**, *italic text*, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$)."
 
         # --- 1. Generation ---
         print("\n--- Step 1: Generating questions (OpenRouter) ---")
@@ -45,11 +48,11 @@ def handle_test(args):
         args_gen_or = argparse.Namespace(
             input_material=None, output_md_path=or_md_path,
             generator_instructions=instructions, reviewer_instructions=None, evaluator_instructions=None,
-            images=[], num_questions=3, provider="openrouter",
-            generator_model="google/gemini-2.5-pro", # A capable model
+            images=[image_path] if image_path else [], num_questions=test_questions, provider="openrouter",
+            generator_model="google/gemini-2.5-pro", # A quicker model for testing
             reviewer_model="google/gemini-2.5-flash",
             evaluator_model="google/gemini-2.5-flash",
-            use_llm_review=True, extract_doc_images=False, language="es",
+            use_llm_review=True, language="es",
             evaluate_initial=True, evaluate_reviewed=True
         )
         handle_generate(args_gen_or)
@@ -59,9 +62,11 @@ def handle_test(args):
         args_gen_openai = argparse.Namespace(
             input_material=None, output_md_path=openai_md_path,
             generator_instructions=instructions, reviewer_instructions=None, evaluator_instructions=None,
-            images=[], num_questions=3, provider="openai",
-            generator_model="gpt-4o", reviewer_model="gpt-4o-mini", evaluator_model="gpt-4o-mini",
-            use_llm_review=True, extract_doc_images=False, language="es",
+            images=[image_path] if image_path else [], num_questions=test_questions, provider="openai",
+            generator_model="gpt-4o", 
+            reviewer_model="gpt-4o-mini", 
+            evaluator_model="gpt-4o",
+            use_llm_review=True, language="es",
             evaluate_initial=True, evaluate_reviewed=True
         )
         handle_generate(args_gen_openai)
@@ -118,9 +123,17 @@ def handle_test(args):
             question_header_to_find = f"## {id_to_modify_content}"
             q_start_index = content.find(question_header_to_find)
             if q_start_index != -1:
-                # Find the start of the question text after the ID header
-                question_text_start = content.find('\n', q_start_index) + 1
-                content = content[:question_text_start] + "EDITED: " + content[question_text_start:]
+                # Find the end of this question block by looking for the next header or end of file
+                next_q_start_index = content.find("\n## ", q_start_index + 1)
+                if next_q_start_index == -1:
+                    next_q_start_index = len(content)
+
+                # Find the start of the first answer option within this question's block
+                first_answer_index = content.find("\n* ", q_start_index, next_q_start_index)
+                
+                if first_answer_index != -1:
+                    # Append "(modified)" right before the answers start
+                    content = content[:first_answer_index] + " (modified)" + content[first_answer_index:]
 
             with open(merged_md_path, 'w', encoding='utf-8') as f:
                 f.write(content)
@@ -133,15 +146,20 @@ def handle_test(args):
         common_export_args = {
             'input_md_path': merged_md_path,
             'shuffle_questions': None, 'shuffle_answers': None, 'num_final_questions': None,
-            'evaluate_final': True, 'exam_title': 'Test Exam', 'exam_course': 'AutoTestIA Course',
+            'evaluate_final': True, 'evaluator_instructions': None, 'exam_title': 'Test Exam', 'exam_course': 'AutoTestIA Course',
             'exam_date': '2025-01-01', 'exam_models': 1, 'language': 'en',
-            'font_size': '11pt', 'pexams_columns': 1, 'pexams_id_length': 10,
+            'font_size': '11pt', 'pexams_columns': 2, 'pexams_id_length': 10,
+            # 'max_image_width': 400, # If two columns, do not use max width
+            'max_image_height': 300,
         }
 
         # Wooclap
         print("Exporting to Wooclap...")
         args_export_wooclap = argparse.Namespace(format='wooclap', **common_export_args)
         handle_export(args_export_wooclap)
+
+        # Disable final evaluation for subsequent exports
+        common_export_args['evaluate_final'] = False
 
         # Moodle XML
         print("Exporting to Moodle XML...")
@@ -153,7 +171,10 @@ def handle_test(args):
         pexams_export_args = common_export_args.copy()
         pexams_export_args.update({
             'exam_generate_fakes': 1,
-            'exam_generate_references': True
+            'exam_generate_references': True,
+            'pexams_columns': 2,
+            'pexams_font_size': '10pt',
+            'pexams_id_length': 10,
         })
         args_export_pexams = argparse.Namespace(format='pexams', **pexams_export_args)
         handle_export(args_export_pexams)
@@ -229,7 +250,6 @@ def handle_generate(args):
         output_md_path=md_path,
         output_tsv_path=tsv_path,
         num_questions=args.num_questions,
-        extract_images_from_doc=args.extract_doc_images,
         language=args.language,
         generator_instructions=args.generator_instructions,
         reviewer_instructions=args.reviewer_instructions,
@@ -277,6 +297,7 @@ def handle_export(args):
         shuffle_answers_seed=args.shuffle_answers,
         num_final_questions=args.num_final_questions,
         evaluate_final=args.evaluate_final,
+        evaluator_instructions=args.evaluator_instructions,
         # Safely access exam-specific args that might not exist for all formats
         exam_title=getattr(args, 'exam_title', None),
         exam_course=getattr(args, 'exam_course', None),
@@ -288,7 +309,9 @@ def handle_export(args):
         columns=getattr(args, 'exam_columns', 1),
         id_length=getattr(args, 'exam_id_length', 10),
         generate_fakes=getattr(args, 'exam_generate_fakes', 0),
-        generate_references=getattr(args, 'exam_generate_references', False)
+        generate_references=getattr(args, 'exam_generate_references', False),
+        max_image_width=getattr(args, 'max_image_width', None),
+        max_image_height=getattr(args, 'max_image_height', None)
     )
 
     # --- Save Updated Metadata ---
@@ -328,7 +351,6 @@ def main():
     parser_generate.add_argument("--evaluator-model", default=None, help="Specific model for the evaluator agent.")
     parser_generate.add_argument("--use-llm-review", action=argparse.BooleanOptionalAction, default=config.DEFAULT_LLM_REVIEW_ENABLED, help="Enable LLM-based review.")
     parser_generate.add_argument("--skip-manual-review", action='store_true', help="Skip the manual review step (not recommended with new workflow).")
-    parser_generate.add_argument("--extract-doc-images", action='store_true', help="[Experimental] Attempt to extract images from input documents.")
     parser_generate.add_argument("--language", default=config.DEFAULT_LANGUAGE, help=f"Language for the questions (default: {config.DEFAULT_LANGUAGE}).")
     parser_generate.add_argument("--evaluate-initial", action="store_true", help="Run evaluator on questions after generation.")
     parser_generate.add_argument("--evaluate-reviewed", action="store_true", help="Run evaluator on questions after the review stage.")
@@ -346,7 +368,10 @@ def main():
     export_common_parser.add_argument("--shuffle-answers", type=int, metavar='SEED', nargs='?', const=random.randint(1, 10000), default=0, help="Shuffle answer order.")
     export_common_parser.add_argument("--num-final-questions", type=int, help="Randomly select N questions.")
     export_common_parser.add_argument("--evaluate-final", action="store_true", help="Run evaluator on the final questions.")
-
+    export_common_parser.add_argument("--evaluator-instructions", type=str, default=None, help="Custom instructions for the evaluator prompt.")
+    export_common_parser.add_argument("--max-image-width", type=int, default=None, help="Maximum width for images in pixels.")
+    export_common_parser.add_argument("--max-image-height", type=int, default=None, help="Maximum height for images in pixels.")
+    
     # Parent parser for exam-specific arguments (pexams, rexams)
     exam_parser = argparse.ArgumentParser(add_help=False)
     exam_parser.add_argument("--exam-title", help="Custom title for the exam PDF.")

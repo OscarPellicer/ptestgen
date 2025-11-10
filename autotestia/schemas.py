@@ -1,5 +1,12 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
+from enum import Enum
+
+class QuestionStage(Enum):
+    GENERATED = "generated"
+    REVIEWED = "reviewed"
+    FINAL = "final"
+
 
 # --- Core Data Structures ---
 
@@ -32,7 +39,7 @@ class ChangeMetrics(BaseModel):
     rel_levenshtein_question: float = 0.0
     rel_levenshtein_answers: float = 0.0
 
-class QuestionStage(BaseModel):
+class QuestionStageContent(BaseModel):
     """Represents a question at a specific stage of the pipeline (e.g., generated, reviewed)."""
     content: QuestionContent
     evaluation: Optional[EvaluationData] = None
@@ -46,9 +53,9 @@ class QuestionRecord(BaseModel):
     source_material: Optional[str] = None
     image_reference: Optional[str] = None
 
-    generated: Optional[QuestionStage] = None
-    reviewed: Optional[QuestionStage] = None
-    manual: Optional[QuestionStage] = None # Populated after parsing user-edited markdown
+    generated: Optional[QuestionStageContent] = None
+    reviewed: Optional[QuestionStageContent] = None
+    final: Optional[QuestionStageContent] = None # Populated after parsing user-edited markdown
 
     # Change tracking
     changes_gen_to_rev: Optional[ChangeMetrics] = None
@@ -56,8 +63,8 @@ class QuestionRecord(BaseModel):
 
     def get_latest_content(self) -> QuestionContent:
         """Returns the most recent version of the question's content."""
-        if self.manual:
-            return self.manual.content
+        if self.final:
+            return self.final.content
         if self.reviewed:
             return self.reviewed.content
         if self.generated:

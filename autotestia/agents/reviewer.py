@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from ..schemas import QuestionRecord, QuestionStage, QuestionContent, ChangeMetrics
+from ..schemas import QuestionRecord, QuestionStage, QuestionContent, QuestionStageContent, ChangeMetrics
 from .. import artifacts
 from .. import config
 import logging
@@ -72,7 +72,7 @@ class QuestionReviewer(BaseAgent):
             reviewed_content = record.generated.content.copy(deep=True)
 
         # Create the new reviewed stage
-        record.reviewed = QuestionStage(content=reviewed_content)
+        record.reviewed = QuestionStageContent(content=reviewed_content)
         
         # Calculate changes
         record.changes_gen_to_rev = artifacts.calculate_changes(record.generated, record.reviewed)
