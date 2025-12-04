@@ -82,8 +82,14 @@ class OpenAICompatibleProvider(LLMProvider):
                 }
             }
         elif self.provider == "ollama":
-             # Use standard json_object mode, which Ollama's OpenAI endpoint supports.
-             params["response_format"] = {"type": "json_object"}
+            params["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_output", # A generic name
+                    "strict": True,
+                    "schema": schema
+                }
+            }
         else: # openai
             params["response_format"] = {"type": "json_object"}
         
