@@ -224,7 +224,7 @@ def handle_generate(args):
         config_override["use_llm_review"] = args.use_llm_review
 
     # --- API Key Check ---
-    if effective_provider != "stub":
+    if effective_provider not in ["stub", "ollama"]:
         api_key_var = config.PROVIDER_API_KEY_MAP.get(effective_provider)
         if not api_key_var or not os.getenv(api_key_var):
              print(f"Error: Provider '{effective_provider}' selected, but its API key ({api_key_var}) was not found in .env or environment variables.", file=sys.stderr)
