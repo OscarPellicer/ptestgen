@@ -40,6 +40,13 @@ except ImportError:
     Image = None
     # No warning needed here yet, as it's only for explicit image inputs for now
 
+try:
+    from nbconvert import MarkdownExporter
+except ImportError:
+    MarkdownExporter = None
+    logging.warning("`nbconvert` library not found. Install with `pip install nbconvert` to enable IPYNB parsing.")
+
+
 def parse_input_material(file_path: str) -> Tuple[str, list]:
     """
     Parses the input material file and returns its text content.
@@ -146,6 +153,16 @@ def parse_input_material(file_path: str) -> Tuple[str, list]:
             else:
                  logging.warning(f"Skipping RTF parsing for '{file_path}' as striprtf library is not available.")
 
+        elif extension == ".ipynb":
+            if MarkdownExporter:
+                try:
+                    md_exporter = MarkdownExporter()
+                    (text_content, resources) = md_exporter.from_filename(file_path)
+                    logging.info(f"Successfully parsed IPYNB file by converting to Markdown. Extracted {len(text_content)} characters.")
+                except Exception as e:
+                    logging.error(f"Error parsing IPYNB file '{file_path}' with nbconvert: {e}", exc_info=True)
+            else:
+                logging.warning(f"Skipping IPYNB parsing for '{file_path}' as nbconvert library is not available.")
         else:
             logging.warning(f"Unsupported file format: {extension} for file '{file_path}'. Cannot extract text.")
             # Consider trying to read as plain text as a fallback?

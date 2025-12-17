@@ -1,7 +1,7 @@
 import logging
 import os
 from typing import List, Optional
-from ..schemas import QuestionRecord
+from .schemas import QuestionRecord
 from pexams.schemas import PexamQuestion, PexamOption
 
 def convert_autotestia_to_pexam(
@@ -27,15 +27,19 @@ def convert_autotestia_to_pexam(
         
         image_source = None
         if record.image_reference and record.image_reference.strip():
-            # Construct path relative to the markdown file's directory
-            prospective_path = os.path.join(md_dir, record.image_reference)
-            # Then get the absolute path
-            prospective_path = os.path.abspath(prospective_path).replace("\\", "/")
+            # Logic to resolve image path
+            # 1. Try treating it as relative to CWD (or absolute)
+            path_relative_to_cwd = os.path.abspath(record.image_reference)
+            
+            # 2. Try treating it as relative to the markdown file
+            path_relative_to_md = os.path.abspath(os.path.join(md_dir, record.image_reference))
 
-            if os.path.isfile(prospective_path):
-                image_source = prospective_path
+            if os.path.isfile(path_relative_to_cwd):
+                image_source = path_relative_to_cwd.replace("\\", "/")
+            elif os.path.isfile(path_relative_to_md):
+                image_source = path_relative_to_md.replace("\\", "/")
             else:
-                logging.warning(f"Image reference '{record.image_reference}' for question '{record.question_id}' not found or not a file, skipping image.")
+                logging.warning(f"Image reference '{record.image_reference}' for question '{record.question_id}' not found at '{path_relative_to_cwd}' or '{path_relative_to_md}', skipping image.")
 
         options = [
             PexamOption(text=latest_content.correct_answer, is_correct=True)

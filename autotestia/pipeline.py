@@ -11,10 +11,16 @@ from .input_parser import parser
 from .agents.generator import QuestionGenerator
 from .agents.reviewer import QuestionReviewer
 from .agents.evaluator import QuestionEvaluator
-from .output_formatter import (gift_converter, moodle_xml_converter, pexams_converter, 
-                               rexams_converter, wooclap_converter)
-from .rexams import generate_exams as rexams_wrapper
+from . import pexams_converter
 from . import artifacts
+
+from pexams import generate_exams
+from pexams.io import (
+    gift_converter as pexams_gift,
+    moodle_xml_converter as pexams_moodle,
+    rexams_converter as pexams_rexams,
+    wooclap_converter as pexams_wooclap
+)
 
 # The old Question dataclass is needed for compatibility with existing converters.
 # This should be phased out eventually.
@@ -85,7 +91,7 @@ class AutoTestIAPipeline:
         logging.info(f"Pipeline initialized with use_llm_review={self.current_config['use_llm_review']}.")
 
     def generate(self,
-                 input_material_path: Optional[str],
+                 input_material_paths: Optional[List[str]],
                  image_paths: Optional[List[str]] = None,
                  output_md_path: str = "generated_questions.md",
                  output_tsv_path: str = "generated_questions.tsv",
@@ -95,7 +101,8 @@ class AutoTestIAPipeline:
                  reviewer_instructions: Optional[str] = None,
                  evaluator_instructions: Optional[str] = None,
                  evaluate_initial: bool = False,
-                 evaluate_reviewed: bool = False):
+                 evaluate_reviewed: bool = False,
+                 num_questions_per_image: int = 1):
         """
         Runs the full question generation and review pipeline.
         """
@@ -103,18 +110,30 @@ class AutoTestIAPipeline:
         question_records: List[QuestionRecord] = []
 
         # 1. Parse Input Material
-        text_content = None
-        if input_material_path:
+        text_content = ""
+        if input_material_paths:
             print("\nStep 1: Parsing input material...")
-            logging.info(f"Parsing input material: {input_material_path}")
-            try:
-                # NOTE: Image extraction from docs is not fully supported in this refactor pass
-                text_content, _ = parser.parse_input_material(input_material_path)
-            except Exception as e:
-                logging.error(f"Failed to parse input material {input_material_path}: {e}", exc_info=True)
-                sys.exit(1)
-        else:
-            print("\nStep 1: Parsing input material... (Skipped - No input file provided)")
+            all_text_content = []
+            for path in input_material_paths:
+                logging.info(f"Parsing input material: {path}")
+                try:
+                    # NOTE: Image extraction from docs is not fully supported in this refactor pass
+                    parsed_text, _ = parser.parse_input_material(path)
+                    if parsed_text:
+                        all_text_content.append(parsed_text)
+                    else:
+                        logging.warning(f"No text content extracted from '{path}'. Skipping.")
+                except Exception as e:
+                    logging.error(f"Failed to parse input material {path}: {e}", exc_info=True)
+            
+            text_content = "\n\n---\n\n".join(all_text_content)
+
+        if not text_content and not image_paths:
+            logging.critical("No text could be extracted from input files and no images were provided. Cannot generate questions.")
+            sys.exit(1)
+            
+        if not text_content:
+            print("\nStep 1: Parsing input material... (No text content found, proceeding with images only)")
         
         # 2. Generate Questions
         print("\nStep 2: Generating questions...")
@@ -123,7 +142,7 @@ class AutoTestIAPipeline:
             num_questions=num_questions,
             language=language,
             custom_instructions=generator_instructions,
-            source_material_path=input_material_path
+            source_material_path=", ".join(input_material_paths) if input_material_paths else None
         )
         
         # Add image-based questions
@@ -131,9 +150,10 @@ class AutoTestIAPipeline:
             print("\nStep 2b: Generating questions from images...")
             image_records = self.generator.generate_questions_from_images(
                 image_paths=image_paths,
-                context_text=text_content, # Provide text as context
+                context_text=None, #text_content, # Provide text as context
                 custom_instructions=generator_instructions,
-                language=language
+                language=language,
+                num_questions_per_image=num_questions_per_image
             )
             if image_records:
                 print(f"Generated {len(image_records)} questions from images.")
@@ -209,9 +229,11 @@ class AutoTestIAPipeline:
                language: str = 'en',
                font_size: str = '11pt',
                columns: int = 1,
-               id_length: int = 10,
                generate_fakes: int = 0,
                generate_references: bool = False,
+               total_students: int = 0,
+               extra_model_templates: int = 0,
+               keep_html: bool = False,
                evaluate_final: bool = False,
                evaluator_instructions: Optional[str] = None,
                max_image_width: Optional[int] = None,
@@ -264,70 +286,66 @@ class AutoTestIAPipeline:
         base_filename = os.path.splitext(os.path.basename(input_md_path))[0]
         output_dir_for_conversions = os.path.dirname(input_md_path)
 
-        if 'moodle_xml' in output_formats:
-            moodle_path = os.path.join(output_dir_for_conversions, f"{base_filename}_moodle.xml")
-            moodle_xml_converter.convert_to_moodle_xml(records=questions_for_conversion, output_file=moodle_path)
+        # Convert to PexamQuestion objects
+        pexam_questions = pexams_converter.convert_autotestia_to_pexam(
+            records=questions_for_conversion,
+            input_md_path=input_md_path,
+            max_image_width=max_image_width,
+            max_image_height=max_image_height
+        )
 
-        if 'gift' in output_formats:
-            gift_path = os.path.join(output_dir_for_conversions, f"{base_filename}.gift")
-            gift_converter.convert_to_gift(records=questions_for_conversion, output_file=gift_path)
-
-        if 'wooclap' in output_formats:
-            wooclap_path = os.path.join(output_dir_for_conversions, f"{base_filename}_wooclap.csv")
-            wooclap_converter.convert_to_wooclap(records=questions_for_conversion, output_file=wooclap_path)
-
-        if 'rexams' in output_formats:
-            logger.warning("The 'rexams' format is deprecated and will be removed in a future version. Please consider using 'pexams' instead, which is a pure Python solution and does not require R and LaTeX.")
-            rexams_rmd_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_rexams_rmd")
-            os.makedirs(rexams_rmd_dir, exist_ok=True)
-            rexams_converter.prepare_for_rexams(records=questions_for_conversion, output_dir=rexams_rmd_dir)
+        for fmt in output_formats:
+            print(f"Exporting to format: {fmt}")
             
-            rexams_pdf_output_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_rexams_pdf_output")
-            os.makedirs(rexams_pdf_output_dir, exist_ok=True)
-
-            r_params = {
-                "exam-title": exam_title,
-                "course": exam_course,
-                "date": exam_date
-            }
+            # Determine output directory or file path based on format
+            suffix = f"_{fmt}_output" if fmt == 'pexams' else ""
+            output_base = os.path.join(output_dir_for_conversions, f"{base_filename}{suffix}")
             
-            rexams_wrapper.generate_rexams_pdfs(
-                questions_input_dir=rexams_rmd_dir,
-                exams_output_dir=rexams_pdf_output_dir,
-                language_str=language,
-                num_models=exam_models,
-                custom_r_params={k: v for k, v in r_params.items() if v is not None}
-            )
+            if fmt == 'pexams':
+                output_dir = output_base
+                os.makedirs(output_dir, exist_ok=True)
+                
+                generate_exams.generate_exams(
+                    questions=pexam_questions,
+                    output_dir=output_dir,
+                    num_models=int(exam_models),
+                    exam_title=exam_title if exam_title is not None else "Final Exam",
+                    exam_course=exam_course,
+                    exam_date=exam_date,
+                    font_size=font_size,
+                    columns=columns,
+                    lang=language,
+                    generate_fakes=generate_fakes,
+                    generate_references=generate_references,
+                    keep_html=keep_html,
+                    total_students=total_students,
+                    extra_model_templates=extra_model_templates
+                )
+                print(f"Pexams outputs generated in: {os.path.abspath(output_dir)}")
 
-        if 'pexams' in output_formats:
-            pexams_output_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_pexams_output")
-            os.makedirs(pexams_output_dir, exist_ok=True)
+            elif fmt == 'rexams':
+                # rexams needs a directory
+                output_dir = f"{output_base}_rexams"
+                os.makedirs(output_dir, exist_ok=True)
+                pexams_rexams.prepare_for_rexams(pexam_questions, output_dir)
+                print(f"R/exams files generated in: {os.path.abspath(output_dir)}")
             
-            pexam_questions = pexams_converter.convert_autotestia_to_pexam(
-                records=questions_for_conversion,
-                input_md_path=input_md_path,
-                max_image_width=max_image_width,
-                max_image_height=max_image_height
-            )
+            elif fmt == 'wooclap':
+                output_file = f"{output_base}_wooclap.csv"
+                pexams_wooclap.convert_to_wooclap(pexam_questions, output_file)
+                print(f"Wooclap file generated at: {os.path.abspath(output_file)}")
 
-            from pexams import generate_exams
-            generate_exams.generate_exams(
-                questions=pexam_questions,
-                output_dir=pexams_output_dir,
-                num_models=int(exam_models),
-                exam_title=exam_title if exam_title is not None else "Final Exam",
-                exam_course=exam_course,
-                exam_date=exam_date,
-                font_size=font_size,
-                columns=columns,
-                id_length=id_length,
-                lang=language,
-                generate_fakes=generate_fakes,
-                generate_references=generate_references,
-                keep_html=True #Useful for debugging
-            )
-            import pprint
-            print(f"Pexams outputs generated in: {os.path.abspath(pexams_output_dir)}")
-            # print(f"Pexams questions: {pprint.pformat(questions_for_conversion)}")
+            elif fmt == 'gift':
+                output_file = f"{output_base}.gift"
+                pexams_gift.convert_to_gift(pexam_questions, output_file)
+                print(f"GIFT file generated at: {os.path.abspath(output_file)}")
+
+            elif fmt == 'moodle_xml':
+                output_file = f"{output_base}_moodle.xml"
+                pexams_moodle.convert_to_moodle_xml(pexam_questions, output_file)
+                print(f"Moodle XML file generated at: {os.path.abspath(output_file)}")
+            
+            else:
+                logging.error(f"Unknown format: {fmt}")
 
         print("\n--- Export Pipeline Finished ---") 

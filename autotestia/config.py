@@ -95,7 +95,6 @@ DEFAULT_OUTPUT_REXAMS_DIR = "output/rexams/" # Directory for R/exams output file
 DEFAULT_LANGUAGE = "Spanish"
 
 # --- Prompting ---
-# Basic prompt templates (can be refined)
 GENERATION_SYSTEM_PROMPT = """
 You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$; don't use $$). DO NOT use newlines in the question text, answers or distractors. For each question, provide:
 - The question text.
@@ -109,16 +108,16 @@ Output the questions as a JSON object with keys: "questions" (list of objects), 
 
 IMAGE_GENERATION_SYSTEM_PROMPT = """
 You are an AI assistant specialized in creating educational multiple-choice questions based on images.
-Given the provided image and optional context text, generate ONE multiple-choice question that requires understanding the image content. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$; don't use $$).
+Given the provided image and optional context text, generate multiple-choice questions that require understanding the image content. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$; don't use $$).
 DO NOT use newlines in the question text, answers or distractors.
-Provide:
+For each question, provide:
 - The question text.
 - The correct answer.
 - A list of distractors.
 
 {custom_generator_instructions}
 
-Output the question as a single JSON object with keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the question on interpreting the visual information in the image, potentially using the context text for background. OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
+Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the questions on interpreting the visual information in the image, potentially using the context text for background. OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
 """
 
 REVIEW_SYSTEM_PROMPT = """
@@ -127,7 +126,6 @@ Review the following question based on clarity, correctness, plausibility of dis
 Take special care to ensure that all options are of similar length, and that the level of complexity of the wrong answers is similar to that of the correct answer.
 Make sure that neither the correct answer nor the distractors end with a period.
 If possible, avoid absolutes in the confounders, such as: never, always, exclusively, etc.
-If the question or the answer or the distractors contain any piece of code, pseudocode or use special characters, enclose it in backticks: `code`.
 
 {custom_reviewer_instructions}
 

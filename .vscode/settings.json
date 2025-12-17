@@ -1,0 +1,7 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python-envs.pythonProjects": [],
+    "cursor.exec.pythonPath": "C:\\Users\\Oscar\\miniconda3\\envs\\autotestia2\\python.exe",
+    "python.defaultInterpreterPath": "C:\\Users\\Oscar\\miniconda3\\envs\\autotestia2\\python.exe"
+}

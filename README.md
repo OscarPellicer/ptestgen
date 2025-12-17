@@ -142,7 +142,6 @@ The `autotestia` command-line tool is organized into several sub-commands to man
 *   `autotestia split`: Split a test into multiple smaller tests. This is useful for creating two exams (e.g. final and make-up) from the same set of questions. While this could also be done manually, using the command ensures that the final `.tsv` file is updated to contain the metainformation from the complete lifecycle of the questions.
 *   `autotestia merge`: Combine multiple tests into a single one. This is useful for merging questions from different topics into a single exam. Similar to `split`, using the command ensures that the final `.tsv` is updated to contain the metainformation from the complete lifecycle of the questions.
 *   `autotestia shuffle`: Shuffle questions in a markdown file.
-*   `autotestia correct`: Correct scanned exam sheets, with sub-commands for `pexams` and `rexams`.
 *   `autotestia test`: Run a full pipeline test to check for runtime errors.
 
 ---
@@ -240,7 +239,8 @@ autotestia export pexams generated/exam_questions.md \
     --exam-course "Máster de ejemplo" \
     --exam-date "2025-10-22" \
     --exam-models 4 \
-    --shuffle-answers 123
+    --shuffle-answers 123 \
+    --exam-total-students 22
 ```
 *   Creates 4 PDF exam models of the questions in `generated/exam_questions.md` using the `pexams` engine.
 *   For more information on the available arguments, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
@@ -250,12 +250,17 @@ autotestia export pexams generated/exam_questions.md \
 ### Command Line Options
 
 #### `autotestia generate`
-*   `input_material`: (Optional) Path to the input file (e.g., `.txt`, `.pdf`).
+*   `input_material`: (Optional) Path(s) to the input file(s). Supports: `.txt`, `.pdf`, `.ipynb`, `.pptx`, `.md`, `.docx`, `.rtf`. Note that all input files will be processed and join together before generating questions.
 *   `-o, --output-dir`: Directory to save the generated `questions.md` and `metadata.tsv` files.
 *   `--generator-instructions`: Custom instructions for the generator prompt.
 *   `--reviewer-instructions`: Custom instructions for the reviewer prompt.
 *   `-i, --images`: Optional path(s) to image file(s) to generate questions from.
-*   `-n, --num-questions`: Number of questions to generate (default: 5).
+*   `-n, --num-questions`: The **total** number of questions to generate. This is treated as a target. If image-based questions are requested, they are prioritized. See `--num-questions-per-image` for details.
+*   `--num-questions-per-image`: Number of questions to generate for each image provided via `--images`. Defaults to 1.
+    *   **Note on Question Counts:** The pipeline prioritizes questions from images.
+        *   If `(number of images * --num-questions-per-image)` is greater than `--num-questions`, a warning will be issued, and the total number of questions generated will be the number of image questions.
+        *   Text-based questions will only be generated if `--num-questions` is greater than the total number of image questions requested.
+        *   Note that for image-based questions, the model only recieves the image (one at a time), and no extra context text (from `input_material`) is provided.
 *   `--provider`: LLM provider (`openai`, `google`, `openrouter`, etc.).
 *   `--generator-model`, `--reviewer-model`, `--evaluator-model`: Specify models for each agent.
 *   `--use-llm-review` / `--no-use-llm-review`: Enable/disable LLM-based review.
@@ -281,9 +286,11 @@ This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`,
 **`pexams` only options:**
 *   `--exam-font-size`: Font size for the exam.
 *   `--exam-columns`: Number of columns for the exam.
-*   `--exam-id-length`: Length of the student ID (e.g. 9 digits for DNI).
 *   `--exam-generate-fakes`: Generate fake answer sheets for the exam (used for testing the correction process).
 *   `--exam-generate-references`: Generate references for the exam (used for teachers' reference).
+*   `--exam-total-students`: Total number of students for mass PDF generation (default: 0).
+*   `--exam-extra-model-templates`: Number of extra template sheets (answer sheet only) to generate per model (default: 0).
+*   `--keep-html`: If set, keeps the intermediate HTML files used for PDF generation.
 
 For more information on the available arguments for `pexams`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
 
@@ -353,30 +360,28 @@ autotestia test --log-level INFO
 
 ---
 
-### `autotestia correct`: Correct exam scans
+### Correcting Exams
 
-This command consolidates the correction workflows for both `pexams` and `rexams`.
+**NOTE:** The `autotestia correct` command has been removed. Please use the `pexams` CLI tool directly for correcting exams generated with the `pexams` export format.
 
-#### `autotestia correct pexams`
+To correct exams:
 
-Corrects exams generated by the `pexams` engine.
-
-**Example:**
 ```bash
-autotestia correct pexams \
-    --input-path generated/my_exam_pexams_output/simulated_scans \
-    --exam-dir generated/my_exam_pexams_output \
-    --output-dir generated/my_exam_pexams_output/correction_results
+pexams correct \
+    --input-path path/to/scanned_images_or_pdf \
+    --exam-dir path/to/generated_output_dir \
+    --output-dir path/to/results_dir \
+    [OPTIONS]
 ```
 
-**Options:**
+**Common Options:**
 *   `--input-path`: Path to the scanned PDF or a folder of scanned images.
 *   `--exam-dir`: Path to the directory containing the generated `pexams` files (e.g., `exam_model_..._questions.json`).
 *   `--output-dir`: Directory where the correction results will be saved.
 *   `--void-questions`: Comma-separated list of question numbers to exclude from scoring.
+*   `--void-questions-nicely`: Comma-separated list of question IDs to void "nicely".
+*   `--input-csv`: Path to an input CSV/XLSX/TSV file containing student IDs.
+*   `--id-column`: Column name in input file containing student IDs.
+*   `--mark-column`: Column name to fill with marks.
+*   `--fuzzy-id-match`: Threshold for fuzzy matching of IDs (0-100).
 
-#### `autotestia correct rexams`
-> **Warning**
-> The `rexams` correction command is deprecated, and may be removed in a future version. Please use `pexams` instead.
-
-Corrects exams generated by the R/exams framework. This command is a wrapper around the original R scripts and provides extensive options for PDF processing and scoring.

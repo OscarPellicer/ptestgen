@@ -119,13 +119,15 @@ class OpenAICompatibleProvider(LLMProvider):
         return completion.choices[0].message.content if completion else None
 
     def generate_question_from_image(self, system_prompt: str, user_prompt: str, image_path: str, num_distractors: int) -> Optional[str]:
-        from ..schemas import LLMQuestionItem
-        schema = LLMQuestionItem.model_json_schema()
+        from ..schemas import LLMQuestionList
+        schema = LLMQuestionList.model_json_schema()
 
         # Add constraints for the number of distractors
-        if 'properties' in schema and 'distractors' in schema['properties']:
-            schema['properties']['distractors']['minItems'] = num_distractors
-            schema['properties']['distractors']['maxItems'] = num_distractors
+        if 'properties' in schema and 'questions' in schema['properties']:
+            question_item_schema = schema['properties']['questions']['items']
+            if 'properties' in question_item_schema and 'properties' in question_item_schema and 'distractors' in question_item_schema['properties']:
+                question_item_schema['properties']['distractors']['minItems'] = num_distractors
+                question_item_schema['properties']['distractors']['maxItems'] = num_distractors
         
         base64_image = encode_image_to_base64(image_path)
         if not base64_image:

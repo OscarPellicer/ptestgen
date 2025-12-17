@@ -16,7 +16,6 @@ from autotestia import config # Import config AFTER dotenv load
 from autotestia import artifacts # Import artifacts module
 from autotestia.split import handle_split_command
 from autotestia.merge import handle_merge_command
-from autotestia.correct import handle_correct_command
 from autotestia.shuffle import handle_shuffle_command
 
 
@@ -148,7 +147,7 @@ def handle_test(args):
             'shuffle_questions': None, 'shuffle_answers': None, 'num_final_questions': None,
             'evaluate_final': True, 'evaluator_instructions': None, 'exam_title': 'Test Exam', 'exam_course': 'AutoTestIA Course',
             'exam_date': '2025-01-01', 'exam_models': 1, 'language': 'en',
-            'font_size': '11pt', 'pexams_columns': 2, 'pexams_id_length': 10,
+            'font_size': '11pt', 'pexams_columns': 2,
             # 'max_image_width': 400, # If two columns, do not use max width
             'max_image_height': 300,
         }
@@ -174,29 +173,19 @@ def handle_test(args):
             'exam_generate_references': True,
             'pexams_columns': 2,
             'pexams_font_size': '10pt',
-            'pexams_id_length': 10,
         })
         args_export_pexams = argparse.Namespace(format='pexams', **pexams_export_args)
         handle_export(args_export_pexams)
 
-        # --- 7. Correct ---
+        # --- 7. Correct (Skipped) ---
         print("\n--- Step 7: Correcting pexams scans ---")
         base_name = os.path.splitext(os.path.basename(merged_md_path))[0]
         pexams_output_dir = os.path.join(output_dir, f"{base_name}_pexams_output")
         simulated_scans_dir = os.path.join(pexams_output_dir, "simulated_scans")
         correction_dir = os.path.join(pexams_output_dir, "correction_results")
         
-        if os.path.exists(simulated_scans_dir):
-            args_correct = argparse.Namespace(
-                correct_type='pexams',
-                input_path=simulated_scans_dir,
-                exam_dir=pexams_output_dir,
-                output_dir=correction_dir,
-                void_questions=None
-            )
-            handle_correct_command(args_correct)
-        else:
-            print(f"Could not find simulated scans directory: {simulated_scans_dir}. Skipping correction.")
+        print("Correction via AutoTestIA is deprecated. Please run 'pexams correct' directly.")
+        print(f"Example command:\npexams correct --input-path \"{simulated_scans_dir}\" --exam-dir \"{pexams_output_dir}\" --output-dir \"{correction_dir}\"")
         
         print("\n--- Test command finished successfully! ---")
     
@@ -245,7 +234,7 @@ def handle_generate(args):
     md_path, tsv_path = artifacts.get_artifact_paths(args.output_md_path)
     pipeline = AutoTestIAPipeline(config_override=config_override)
     pipeline.generate(
-        input_material_path=args.input_material,
+        input_material_paths=args.input_material,
         image_paths=args.images,
         output_md_path=md_path,
         output_tsv_path=tsv_path,
@@ -255,7 +244,8 @@ def handle_generate(args):
         reviewer_instructions=args.reviewer_instructions,
         evaluator_instructions=args.evaluator_instructions,
         evaluate_initial=args.evaluate_initial,
-        evaluate_reviewed=args.evaluate_reviewed
+        evaluate_reviewed=args.evaluate_reviewed,
+        num_questions_per_image=args.num_questions_per_image
     )
 
 def handle_export(args):
@@ -307,9 +297,11 @@ def handle_export(args):
         # Safely access pexams-specific args
         font_size=getattr(args, 'exam_font_size', "11pt"),
         columns=getattr(args, 'exam_columns', 1),
-        id_length=getattr(args, 'exam_id_length', 10),
         generate_fakes=getattr(args, 'exam_generate_fakes', 0),
         generate_references=getattr(args, 'exam_generate_references', False),
+        total_students=getattr(args, 'exam_total_students', 0),
+        extra_model_templates=getattr(args, 'exam_extra_model_templates', 0),
+        keep_html=getattr(args, 'keep_html', False) or (hasattr(args, 'log_level') and args.log_level == 'DEBUG'),
         max_image_width=getattr(args, 'max_image_width', None),
         max_image_height=getattr(args, 'max_image_height', None)
     )
@@ -336,15 +328,16 @@ def main():
     # --- Generate Command ---
     parser_generate = subparsers.add_parser("generate", help="Generate questions from a source.", parents=[common_parser])
     parser_generate.add_argument("input_material",
-                                 nargs='?',
-                                 default=None,
-                                 help="Path to the input material file (e.g., .txt, .pdf). If omitted, generation relies on instructions.")
+                                 nargs='*',
+                                 default=[],
+                                 help="Paths to the input material files (e.g., .txt, .pdf). Can be multiple. If omitted, generation relies on instructions.")
     parser_generate.add_argument("-o", "--output-md-path", default="generated/questions.md", help="Path to save the output markdown file. A .tsv file will be created alongside it.")
     parser_generate.add_argument("--generator-instructions", type=str, default=None, help="Custom instructions for the generator prompt.")
     parser_generate.add_argument("--reviewer-instructions", type=str, default=None, help="Custom instructions for the reviewer prompt.")
     parser_generate.add_argument("--evaluator-instructions", type=str, default=None, help="Custom instructions for the evaluator prompt.")
     parser_generate.add_argument("-i", "--images", nargs='+', help="Optional paths to image files.", default=[])
-    parser_generate.add_argument("-n", "--num-questions", type=int, default=config.DEFAULT_NUM_QUESTIONS, help=f"Number of questions to generate (default: {config.DEFAULT_NUM_QUESTIONS}).")
+    parser_generate.add_argument("-n", "--num-questions", type=int, default=config.DEFAULT_NUM_QUESTIONS, help=f"Number of questions to generate from text (default: {config.DEFAULT_NUM_QUESTIONS}).")
+    parser_generate.add_argument("--num-questions-per-image", type=int, default=1, help="Number of questions to generate per image (default: 1).")
     parser_generate.add_argument("--provider", choices=config.GENERATOR_MODEL_MAP.keys(), default=config.LLM_PROVIDER, help=f"LLM provider to use (default: {config.LLM_PROVIDER}).")
     parser_generate.add_argument("--generator-model", default=None, help="Specific model for the generator agent.")
     parser_generate.add_argument("--reviewer-model", default=None, help="Specific model for the reviewer agent.")
@@ -388,57 +381,24 @@ def main():
 
     # Pexams subparser
     parser_pexams = export_subparsers.add_parser("pexams", parents=[common_parser, export_common_parser, exam_parser], help="Export to pexams PDF format.")
-    parser_pexams.add_argument("--exam-font-size", default="11pt", help="Font size for pexams PDF.")
+    parser_pexams.add_argument("--exam-font-size", default="10pt", help="Font size for pexams PDF.")
     parser_pexams.add_argument("--exam-columns", type=int, default=1, choices=[1, 2], help="Number of columns for questions.")
-    parser_pexams.add_argument("--exam-id-length", type=int, default=10, help="Number of boxes for the student ID grid.")
     parser_pexams.add_argument("--exam-generate-fakes", type=int, default=0, help="Generate N simulated scans with fake answers.")
     parser_pexams.add_argument("--exam-generate-references", action="store_true", help="Generate a reference scan with correct answers.")
+    parser_pexams.add_argument("--exam-total-students", type=int, default=0, help="Total number of students for mass PDF generation.")
+    parser_pexams.add_argument("--exam-extra-model-templates", type=int, default=0, help="Number of extra template sheets (answer sheet only) to generate per model.")
+    parser_pexams.add_argument("--keep-html", action="store_true", help="If set, keeps the intermediate HTML files used for PDF generation.")
 
     # Rexams subparser
     export_subparsers.add_parser("rexams", parents=[common_parser, export_common_parser, exam_parser], help="[DEPRECATED] Export to R/exams format.")
 
     parser_export.set_defaults(func=handle_export)
 
-    # --- Correct Command ---
-    # This parser is just a container for the type subparsers
-    parser_correct = subparsers.add_parser("correct", help="Correct exams.")
-    correct_subparsers = parser_correct.add_subparsers(dest="correct_type", required=True, help="The type of exam to correct.")
+    # --- Correct Command (Deprecated/Removed) ---
+    parser_correct = subparsers.add_parser("correct", help="[DEPRECATED] To correct exams, please use the 'pexams' CLI tool directly.")
+    parser_correct.add_argument('args', nargs=argparse.REMAINDER)
+    parser_correct.set_defaults(func=lambda x: print("The 'correct' command has been removed from AutoTestIA. Please use the 'pexams correct' command directly.\n\nExample:\npexams correct --input-path ... --exam-dir ... --output-dir ..."))
 
-    # PEXAMS correct subparser
-    parser_pexams_correct = correct_subparsers.add_parser("pexams", parents=[common_parser], help="Correct a pexam.")
-    parser_pexams_correct.add_argument("--input-path", required=True, help="Path to the scanned PDF or a folder of scanned images.")
-    parser_pexams_correct.add_argument("--exam-dir", required=True, help="Path to the generated pexams output directory.")
-    parser_pexams_correct.add_argument("--output-dir", required=True, help="Directory to save correction results.")
-    parser_pexams_correct.add_argument("--void-questions", type=str, help="Comma-separated list of question numbers to void.")
-    
-    # REXAMS correct subparser
-    parser_rexams_correct = correct_subparsers.add_parser("rexams", parents=[common_parser], help="Correct an R/exams scan.")
-    parser_rexams_correct.add_argument("--all-scans-pdf", required=True, help="Path to the single PDF containing all scanned exam sheets.")
-    parser_rexams_correct.add_argument("--student-info-csv", type=str, required=True, help="Path to the input CSV with student information.")
-    parser_rexams_correct.add_argument("--solutions-rds", type=str, required=True, help="Path to the exam.rds file from R/exams.")
-    parser_rexams_correct.add_argument("--output-path", type=str, required=True, help="Main directory for all outputs.")
-    parser_rexams_correct.add_argument("--r-executable", type=str, default=None, help="Path to Rscript.")
-    parser_rexams_correct.add_argument("--exam-language", type=str, default="en", help="Language for nops_eval.")
-    parser_rexams_correct.add_argument("--scan-thresholds", type=str, default="0.04,0.42", help="Scan thresholds for nops_scan.")
-    parser_rexams_correct.add_argument("--partial-eval", action=argparse.BooleanOptionalAction, default=True, help="Enable partial scoring.")
-    parser_rexams_correct.add_argument("--negative-points", type=float, default=-1/3, help="Penalty for incorrect answers.")
-    parser_rexams_correct.add_argument("--max-score", type=float, default=None, help="Maximum raw score.")
-    parser_rexams_correct.add_argument("--scale-mark-to", type=float, default=10.0, help="Target score for scaling.")
-    parser_rexams_correct.add_argument("--python-split", action=argparse.BooleanOptionalAction, default=False, dest="split_pages_python_control")
-    parser_rexams_correct.add_argument("--python-rotate", action=argparse.BooleanOptionalAction, default=False, dest="python_rotate_control")
-    parser_rexams_correct.add_argument("--python-bw-threshold", type=int, default=97)
-    parser_rexams_correct.add_argument("--force-overwrite", action="store_true", default=False)
-    parser_rexams_correct.add_argument("--student-csv-id-col", type=str, default="ID.Usuario")
-    parser_rexams_correct.add_argument("--student-csv-reg-col", type=str, default="Número.de.Identificación")
-    parser_rexams_correct.add_argument("--student-csv-name-col", type=str, default="Nombre")
-    parser_rexams_correct.add_argument("--student-csv-surname-col", type=str, default="Apellidos")
-    parser_rexams_correct.add_argument("--student-csv-encoding", type=str, default="UTF-8")
-    parser_rexams_correct.add_argument("--registration-format", type=str, default="%08s")
-    parser_rexams_correct.add_argument("--void-questions", type=str, default=None)
-    parser_rexams_correct.add_argument("--void-questions-nicely", type=str, default=None)
-    # Add other rexams-specific arguments here
-
-    parser_correct.set_defaults(func=handle_correct_command)
 
     # --- Split Command ---
     parser_split = subparsers.add_parser("split", help="Split a test into multiple parts.", parents=[common_parser])

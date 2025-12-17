@@ -149,90 +149,95 @@ class QuestionGenerator(BaseAgent):
                                        context_text: Optional[str] = None,
                                        num_options: int = config.DEFAULT_NUM_OPTIONS,
                                        custom_instructions: Optional[str] = None,
-                                       language: str = config.DEFAULT_LANGUAGE) -> List[QuestionRecord]:
-        """Generates one question for each image provided."""
-        records = []
+                                       language: str = config.DEFAULT_LANGUAGE,
+                                       num_questions_per_image: int = 1) -> List[QuestionRecord]:
+        """Generates a specified number of questions for each image provided."""
+        all_records = []
         if not image_paths:
-            return records
+            return all_records
 
-        logging.info(f"Generating questions for {len(image_paths)} image(s)...")
+        logging.info(f"Generating {num_questions_per_image} question(s) for each of the {len(image_paths)} image(s)...")
         for image_path in image_paths:
-            record = self._generate_one_question_from_image(
+            image_records = self._generate_questions_from_single_image(
                 image_path=image_path,
                 context_text=context_text,
                 num_options=num_options,
                 custom_instructions=custom_instructions,
-                language=language
+                language=language,
+                num_questions_to_generate=num_questions_per_image
             )
-            if record:
-                records.append(record)
-        return records
+            if image_records:
+                all_records.extend(image_records)
+        return all_records
 
-    def _generate_one_question_from_image(self,
-                                          image_path: str,
-                                          context_text: Optional[str],
-                                          num_options: int,
-                                          custom_instructions: Optional[str],
-                                          language: str = config.DEFAULT_LANGUAGE) -> Optional[QuestionRecord]:
-        """Generates a single question from an image using the configured LLM."""
+    def _generate_questions_from_single_image(self,
+                                              image_path: str,
+                                              context_text: Optional[str],
+                                              num_options: int,
+                                              custom_instructions: Optional[str],
+                                              language: str,
+                                              num_questions_to_generate: int) -> List[QuestionRecord]:
+        """Generates N questions from a single image using the configured LLM."""
         if self.llm_provider_name == "stub":
-            return self._generate_stub_records(1, num_options, f"Image: {image_path}")[0]
+            return self._generate_stub_records(num_questions_to_generate, num_options, f"Image: {image_path}")
 
         if not self.provider:
             raise RuntimeError(f"LLM provider '{self.llm_provider_name}' is not available.")
 
-        logging.info(f"Generating question from image {image_path} using {self.llm_provider_name} ({self.provider.model_name})...")
+        logging.info(f"Generating {num_questions_to_generate} questions for image {image_path}...")
 
-        # Basic vision capabilities check
         if not self.provider.supports_vision():
-             logging.warning(f"Model '{self.provider.model_name}' for provider '{self.llm_provider_name}' may not support vision. Skipping image question.")
-             return None
+            logging.warning(f"Model '{self.provider.model_name}' may not support vision. Skipping image.")
+            return []
 
-        base64_image = encode_image_to_base64(image_path)
-        if not base64_image:
-            return None
-        
         num_distractors = num_options - 1
-
-        system_prompt_template = config.IMAGE_GENERATION_SYSTEM_PROMPT.replace(
-            '{custom_generator_instructions}',
-            custom_instructions if custom_instructions else ""
+        system_prompt = config.IMAGE_GENERATION_SYSTEM_PROMPT.replace(
+            '{custom_generator_instructions}', custom_instructions or ""
         )
-        user_prompt_text = f"Generate ONE multiple-choice question based on the provided image."
-        user_prompt_text += f"\nEach question should have one correct answer and {num_distractors} distractors."
-        user_prompt_text += f"\nGenerate the question and the answers in the following language: {language}."
+        
+        user_prompt_text = f"Generate exactly {num_questions_to_generate} multiple-choice questions based on the provided image."
+        user_prompt_text += f"\nEach question must have one correct answer and {num_distractors} distractors."
+        user_prompt_text += f"\nGenerate the questions and answers in {language}."
         if context_text:
-            user_prompt_text += f"\n\nOptional Context:\n{context_text}"
+            user_prompt_text += f"\n\nUse this text as additional context:\n{context_text}"
         
         try:
             response_content = self.provider.generate_question_from_image(
-                system_prompt=system_prompt_template,
+                system_prompt=system_prompt,
                 user_prompt=user_prompt_text,
-                image_path=image_path, # Provider handles encoding now
+                image_path=image_path,
                 num_distractors=num_distractors
             )
             
             if not response_content:
-                 logging.error(f"No content received from LLM for image {image_path}.")
-                 return None
+                logging.error(f"No content received from LLM for image {image_path}.")
+                return []
 
-            parsed_data = self._parse_llm_json_response(response_content, expected_structure='single_question_dict')
-
-            if parsed_data:
-                # Pydantic will validate the structure here
-                content = QuestionContent(**parsed_data)
-                record = QuestionRecord(
-                    question_id=artifacts.generate_question_id(image_path),
-                    source_material=f"Image: {os.path.basename(image_path)}",
-                    image_reference=image_path,
-                    generated=QuestionStageContent(content=content)
-                )
-                return record
+            # Expect a list of questions, similar to the text generator
+            parsed_data = self._parse_llm_json_response(response_content, expected_structure='questions_list')
+            
+            records = []
+            if parsed_data and isinstance(parsed_data.get("questions"), list):
+                for item in parsed_data["questions"]:
+                    if isinstance(item.get("distractors"), list) and len(item["distractors"]) == num_distractors:
+                        content = QuestionContent(**item)
+                        record = QuestionRecord(
+                            question_id=artifacts.generate_question_id(image_path),
+                            source_material=f"Image: {os.path.basename(image_path)}",
+                            image_reference=image_path,
+                            generated=QuestionStageContent(content=content)
+                        )
+                        records.append(record)
+                    else:
+                        logging.warning(f"Skipping malformed question item for image {image_path}: {item}")
+                return records
+            else:
+                logging.warning(f"Failed to parse a valid question list from LLM response for image {image_path}. Response content: {response_content}")
 
         except Exception as e:
             logging.error(f"Error during image question generation for {image_path}: {e}", exc_info=True)
         
-        return None
+        return []
 
     def _generate_stub_records(self, num_questions: int, num_options: int, source: Optional[str]) -> List[QuestionRecord]:
         """Generates placeholder QuestionRecord objects for stub mode."""
