@@ -131,7 +131,7 @@ class OpenAICompatibleProvider(LLMProvider):
         # Add constraints for the number of distractors
         if 'properties' in schema and 'questions' in schema['properties']:
             question_item_schema = schema['properties']['questions']['items']
-            if 'properties' in question_item_schema and 'properties' in question_item_schema and 'distractors' in question_item_schema['properties']:
+            if 'properties' in question_item_schema and 'distractors' in question_item_schema['properties']:
                 question_item_schema['properties']['distractors']['minItems'] = num_distractors
                 question_item_schema['properties']['distractors']['maxItems'] = num_distractors
         

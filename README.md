@@ -238,9 +238,9 @@ autotestia export pexams generated/exam_questions.md \
     --exam-title "Sistemas Informáticos - Examen Parcial" \
     --exam-course "Máster de ejemplo" \
     --exam-date "2025-10-22" \
-    --exam-models 4 \
+    --num-models 4 \
     --shuffle-answers 123 \
-    --exam-total-students 22
+    --total-students 22
 ```
 *   Creates 4 PDF exam models of the questions in `generated/exam_questions.md` using the `pexams` engine.
 *   For more information on the available arguments, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
@@ -276,21 +276,20 @@ This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`,
 *   `--num-final-questions N`: Randomly select `N` questions.
 *   `--evaluate-final`: Run the evaluator on the final set of questions (after manual review).
 
-**`pexams` and `rexams` specific options:**
-*   `--exam-title`: Title for the exam.
-*   `--exam-course`: Course name for the exam.
-*   `--exam-date`: Date for the exam.
-*   `--exam-models`: Number of different exam versions to generate.
-*   `--exam-language`: Language for the exam: `es`, `en`, `ca`, `de`, `fr`, `it`, `pt`, `ru`, `zh`, etc.
-
-**`pexams` only options:**
-*   `--exam-font-size`: Font size for the exam.
-*   `--exam-columns`: Number of columns for the exam.
-*   `--exam-generate-fakes`: Generate fake answer sheets for the exam (used for testing the correction process).
-*   `--exam-generate-references`: Generate references for the exam (used for teachers' reference).
-*   `--exam-total-students`: Total number of students for mass PDF generation (default: 0).
-*   `--exam-extra-model-templates`: Number of extra template sheets (answer sheet only) to generate per model (default: 0).
+**`pexams` specific options:**
+*   `--num-models <int>`: Number of different exam models to generate (default: 4).
+*   `--exam-title <str>`: Title of the exam (default: "Final Exam").
+*   `--exam-course <str>`: Course name for the exam (optional).
+*   `--exam-date <str>`: Date of the exam (optional).
+*   `--columns <int>`: Number of columns for the questions (1, 2, or 3; default: 1).
+*   `--font-size <str>`: Base font size for the exam (e.g., '10pt', '12px'; default: '10pt').
+*   `--total-students <int>`: Total number of students for mass PDF generation (default: 0).
+*   `--extra-model-templates <int>`: Number of extra template sheets (answer sheet only) to generate per model (default: 0).
+*   `--lang <str>`: Language for the answer sheet labels (e.g., 'en', 'es'; default: 'en').
 *   `--keep-html`: If set, keeps the intermediate HTML files used for PDF generation.
+*   `--generate-fakes <int>`: Generates a number of simulated scans with fake answers for testing the correction process (default: 0).
+*   `--generate-references`: If set, generates a reference scan with the correct answers marked for each model.
+*   `--custom-header <str>`: Markdown string or path to a Markdown file to insert before the questions (e.g., instructions).
 
 For more information on the available arguments for `pexams`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
 
@@ -384,4 +383,12 @@ pexams correct \
 *   `--id-column`: Column name in input file containing student IDs.
 *   `--mark-column`: Column name to fill with marks.
 *   `--fuzzy-id-match`: Threshold for fuzzy matching of IDs (0-100).
+*   `--input-encoding`: Encoding of the input CSV file (e.g., 'utf-8', 'latin-1').
+*   `--penalty`: Penalty for incorrect answers (positive value, e.g., 0.25 for -0.25 points).
+*   - `--input-sep <str>`: Separator for the input CSV file (default `,`). If your CSV uses semicolons (common in Europe), pass `--input-sep semi` or `--input-sep ";"`.
+*   `--output-decimal-sep <str>`: Decimal separator for the output marks (default `.`). Use `,` if your locale requires comma decimals (e.g., `--output-decimal-sep ","`).
+*   `--simplify-csv`: If set, the output CSV (`*_with_marks.csv`) will only keep the columns specified by `--id-column`, `--name-column`, and `--mark-column`. This is useful for creating a clean file for importing into a gradebook.
+*   `--name-column <name>`: Column name in input file containing student names. Required if `--simplify-csv` is used.
+*   - `--only-analysis`: Skip the image processing step (OCR/OMR) and proceed directly to the analysis and grading phase using an existing `correction_results.csv`. 
 
+For more information on the available arguments for `pexams correct`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)

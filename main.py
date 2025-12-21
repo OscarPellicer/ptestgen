@@ -146,8 +146,8 @@ def handle_test(args):
             'input_md_path': merged_md_path,
             'shuffle_questions': None, 'shuffle_answers': None, 'num_final_questions': None,
             'evaluate_final': True, 'evaluator_instructions': None, 'exam_title': 'Test Exam', 'exam_course': 'AutoTestIA Course',
-            'exam_date': '2025-01-01', 'exam_models': 1, 'language': 'en',
-            'font_size': '11pt', 'pexams_columns': 2,
+            'exam_date': '2025-01-01', 'num_models': 1, 'lang': 'en',
+            'font_size': '11pt', 'columns': 2,
             # 'max_image_width': 400, # If two columns, do not use max width
             'max_image_height': 300,
         }
@@ -169,10 +169,11 @@ def handle_test(args):
         print("Exporting to pexams (with fakes)...")
         pexams_export_args = common_export_args.copy()
         pexams_export_args.update({
-            'exam_generate_fakes': 1,
-            'exam_generate_references': True,
-            'pexams_columns': 2,
-            'pexams_font_size': '10pt',
+            'generate_fakes': 1,
+            'generate_references': True,
+            'columns': 2,
+            'font_size': '10pt',
+            'custom_header': '## Instructions\nAnswer the questions carefully.',
         })
         args_export_pexams = argparse.Namespace(format='pexams', **pexams_export_args)
         handle_export(args_export_pexams)
@@ -185,7 +186,7 @@ def handle_test(args):
         correction_dir = os.path.join(pexams_output_dir, "correction_results")
         
         print("Correction via AutoTestIA is deprecated. Please run 'pexams correct' directly.")
-        print(f"Example command:\npexams correct --input-path \"{simulated_scans_dir}\" --exam-dir \"{pexams_output_dir}\" --output-dir \"{correction_dir}\"")
+        print(f"Example command:\npexams correct --input-path \"{simulated_scans_dir}\" --exam-dir \"{pexams_output_dir}\" --output-dir \"{correction_dir}\" --input-encoding utf-8 --penalty 0.25")
         
         print("\n--- Test command finished successfully! ---")
     
@@ -292,18 +293,19 @@ def handle_export(args):
         exam_title=getattr(args, 'exam_title', None),
         exam_course=getattr(args, 'exam_course', None),
         exam_date=getattr(args, 'exam_date', None),
-        exam_models=getattr(args, 'exam_models', 1),
-        language=getattr(args, 'exam_language', config.DEFAULT_LANGUAGE),
+        exam_models=getattr(args, 'num_models', getattr(args, 'exam_models', 1)),
+        language=getattr(args, 'lang', getattr(args, 'exam_language', config.DEFAULT_LANGUAGE)),
         # Safely access pexams-specific args
-        font_size=getattr(args, 'exam_font_size', "11pt"),
-        columns=getattr(args, 'exam_columns', 1),
-        generate_fakes=getattr(args, 'exam_generate_fakes', 0),
-        generate_references=getattr(args, 'exam_generate_references', False),
-        total_students=getattr(args, 'exam_total_students', 0),
-        extra_model_templates=getattr(args, 'exam_extra_model_templates', 0),
+        font_size=getattr(args, 'font_size', "11pt"),
+        columns=getattr(args, 'columns', 1),
+        generate_fakes=getattr(args, 'generate_fakes', 0),
+        generate_references=getattr(args, 'generate_references', False),
+        total_students=getattr(args, 'total_students', 0),
+        extra_model_templates=getattr(args, 'extra_model_templates', 0),
         keep_html=getattr(args, 'keep_html', False) or (hasattr(args, 'log_level') and args.log_level == 'DEBUG'),
         max_image_width=getattr(args, 'max_image_width', None),
-        max_image_height=getattr(args, 'max_image_height', None)
+        max_image_height=getattr(args, 'max_image_height', None),
+        custom_header=getattr(args, 'custom_header', None)
     )
 
     # --- Save Updated Metadata ---
@@ -380,14 +382,20 @@ def main():
     export_subparsers.add_parser("none", parents=[common_parser, export_common_parser], help="Run export pre-processing without creating a final file.")
 
     # Pexams subparser
-    parser_pexams = export_subparsers.add_parser("pexams", parents=[common_parser, export_common_parser, exam_parser], help="Export to pexams PDF format.")
-    parser_pexams.add_argument("--exam-font-size", default="10pt", help="Font size for pexams PDF.")
-    parser_pexams.add_argument("--exam-columns", type=int, default=1, choices=[1, 2], help="Number of columns for questions.")
-    parser_pexams.add_argument("--exam-generate-fakes", type=int, default=0, help="Generate N simulated scans with fake answers.")
-    parser_pexams.add_argument("--exam-generate-references", action="store_true", help="Generate a reference scan with correct answers.")
-    parser_pexams.add_argument("--exam-total-students", type=int, default=0, help="Total number of students for mass PDF generation.")
-    parser_pexams.add_argument("--exam-extra-model-templates", type=int, default=0, help="Number of extra template sheets (answer sheet only) to generate per model.")
+    parser_pexams = export_subparsers.add_parser("pexams", parents=[common_parser, export_common_parser], help="Export to pexams PDF format.")
+    parser_pexams.add_argument("--num-models", type=int, default=1, help="Number of different exam models to generate (default: 4).")
+    parser_pexams.add_argument("--exam-title", default="Final Exam", help="Title of the exam (default: \"Final Exam\").")
+    parser_pexams.add_argument("--exam-course", help="Course name for the exam (optional).")
+    parser_pexams.add_argument("--exam-date", help="Date of the exam (optional).")
+    parser_pexams.add_argument("--columns", type=int, default=1, choices=[1, 2, 3], help="Number of columns for the questions (1, 2, or 3; default: 1).")
+    parser_pexams.add_argument("--font-size", default="10pt", help="Base font size for the exam (e.g., '10pt', '12px'; default: '10pt').")
+    parser_pexams.add_argument("--total-students", type=int, default=0, help="Total number of students for mass PDF generation (default: 0).")
+    parser_pexams.add_argument("--extra-model-templates", type=int, default=0, help="Number of extra template sheets (answer sheet only) to generate per model (default: 0).")
+    parser_pexams.add_argument("--lang", default=config.DEFAULT_LANGUAGE, help="Language for the answer sheet labels (e.g., 'en', 'es'; default: 'en').")
     parser_pexams.add_argument("--keep-html", action="store_true", help="If set, keeps the intermediate HTML files used for PDF generation.")
+    parser_pexams.add_argument("--generate-fakes", type=int, default=0, help="Generates a number of simulated scans with fake answers for testing the correction process (default: 0).")
+    parser_pexams.add_argument("--generate-references", action="store_true", help="If set, generates a reference scan with the correct answers marked for each model.")
+    parser_pexams.add_argument("--custom-header", help="Markdown string or path to a Markdown file to insert before the questions (e.g., instructions).")
 
     # Rexams subparser
     export_subparsers.add_parser("rexams", parents=[common_parser, export_common_parser, exam_parser], help="[DEPRECATED] Export to R/exams format.")
@@ -397,7 +405,7 @@ def main():
     # --- Correct Command (Deprecated/Removed) ---
     parser_correct = subparsers.add_parser("correct", help="[DEPRECATED] To correct exams, please use the 'pexams' CLI tool directly.")
     parser_correct.add_argument('args', nargs=argparse.REMAINDER)
-    parser_correct.set_defaults(func=lambda x: print("The 'correct' command has been removed from AutoTestIA. Please use the 'pexams correct' command directly.\n\nExample:\npexams correct --input-path ... --exam-dir ... --output-dir ..."))
+    parser_correct.set_defaults(func=lambda x: print("The 'correct' command has been removed from AutoTestIA. Please use the 'pexams correct' command directly.\n\nExample:\npexams correct --input-path ... --exam-dir ... --output-dir ... --input-encoding utf-8 --penalty 0.25"))
 
 
     # --- Split Command ---
