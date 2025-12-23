@@ -26,12 +26,16 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   **Clarity:** How clear the question and options are.
     *   **Distractor Plausibility:** How convincing the incorrect answers are.
     *   It also tracks the changes made to the questions and answers after each of the three stages: generation, automatic review, and manual review.
+    *   **Evaluate Missing:** You can now run evaluations on questions that missed it during the pipeline using the `autotestia evaluate-missing` command.
 *   **Manual Review Workflow (OE3):** Outputs questions in a clean Markdown format for easy verification and editing by the educator. See [Manual review of the questions](#manual-review-of-the-questions) for more information on what formatting options are supported.
-*   **Format Conversion (OE4):** Converts the finalized questions into formats compatible with Moodle (XML/GIFT, *GIFT recommended for Moodle*), Wooclap, pexams (PDF), ~~and R/exams~~ (deprecated in favor of pexams).
+*   **Format Conversion (OE4):** Converts the finalized questions into formats compatible with Moodle (XML/GIFT, *GIFT recommended for Moodle*), Wooclap, pexams (PDF), and R/exams.
 *   **Question Shuffling & Selection:**
     *   Shuffle the order of generated questions (`--shuffle-questions`).
     *   Shuffle the order of answers within each question (`--shuffle-answers`).
     *   Select a random subset of the final questions (`--num-final-questions`).
+*   **Exam Correction (OE9):**
+    *   Correct scanned PDF exams generated via `pexams` using the `autotestia correct` command.
+    *   Updates the `metadata.tsv` file with correction statistics, including total answers and answer distribution per question.
 *   **Integrated Pipeline (OE5):** A cohesive Python script orchestrates the entire process.
 *   *(Future)* Dynamic Question Support (OE7)
 *   *(Future)* Humorous Distractor Option (OE8)
@@ -105,18 +109,6 @@ The library has been tested on Python 3.11.
         playwright install chromium
         ```
 
-7.  **(DEPRECATED) Setup for R/exams**
-    > **Warning**
-    > The `rexams` export format and correction command are deprecated in favor of the pure Python `pexams` engine. Support for `rexams` will be removed in a future version. It is recommended to use `pexams` for generating PDF exams as it does not require installing R or LaTeX, and is much less prone to frustrating errors.
-
-    To utilize the R/exams output format, you must have R and a LaTeX distribution installed.
-    *   **Install R:** [The Comprehensive R Archive Network (CRAN)](https://cran.r-project.org/).
-    *   **Install LaTeX:** We recommend [TinyTeX](https://yihui.org/tinytex/).
-    *   **Install Required R Packages:**
-        ```R
-        install.packages(c("exams", "optparse", "knitr", "qpdf"))
-        ```
-
 **Note on parsing `.pptx` files (WIP)**
 
 Unfortunately, the `python-pptx` library in charge of parsing `.pptx` files does not correctly parse MathML equations. This has been solved in my fork of the library: https://github.com/OscarPellicer/python-pptx.
@@ -136,6 +128,7 @@ The `autotestia` command-line tool is organized into several sub-commands to man
 1.  **`generate`**: Create a new set of questions from a document or instructions. This produces a human-readable `questions.md` file for manual review and a `metadata.tsv` file that tracks all question data.
 2.  **(Manual Step)**: Edit the `questions.md` file to correct, improve, add, or delete questions.
 3.  **`export <format>`**: Read the (potentially edited) `questions.md` and its corresponding `metadata.tsv` to export the final questions into a specific format like Moodle GIFT, pexams, Wooclap, etc.
+4.  **`correct`** (Optional): If using `pexams`, correct the scanned answer sheets and update the `metadata.tsv` with question statistics.
 
 **Other Commands:**
 
@@ -143,6 +136,7 @@ The `autotestia` command-line tool is organized into several sub-commands to man
 *   `autotestia merge`: Combine multiple tests into a single one. This is useful for merging questions from different topics into a single exam. Similar to `split`, using the command ensures that the final `.tsv` is updated to contain the metainformation from the complete lifecycle of the questions.
 *   `autotestia shuffle`: Shuffle questions in a markdown file.
 *   `autotestia test`: Run a full pipeline test to check for runtime errors.
+*   `autotestia evaluate-missing`: Run the evaluator on questions that are missing evaluation data for any stage (generated, reviewed, final).
 
 ---
 
@@ -247,6 +241,48 @@ autotestia export pexams generated/exam_questions.md \
 
 ---
 
+### `autotestia correct`: Correct Scanned Exams (pexams)
+
+Use this command to correct scanned exams generated via `pexams` and update your question repository with statistics.
+
+```bash
+autotestia correct generated/topic_questions.md \
+    --input-path path/to/scanned_images_or_pdf \
+    --exam-dir path/to/generated_output_dir \
+    --output-dir path/to/results_dir \
+    --evaluate-final \
+    [OPTIONS]
+```
+
+- The `--input-path` can be a single PDF file or a folder of images (PNG, JPG).
+- The `--exam-dir` must contain the `exam_model_*_questions.json` files generated alongside the exam PDFs.
+
+**Mark Filling Arguments:**
+
+- `--input-csv <path>`: Path to an input CSV/XLSX/TSV file containing student IDs.
+- `--id-column <name>`: Column name in input file containing student IDs.
+- `--mark-column <name>`: Column name to fill with marks (will be created if missing).
+- `--fuzzy-id-match <0-100>`: Threshold for fuzzy matching of IDs (default 100 = exact match only).
+- `--input-encoding <str>`: Encoding of the input CSV file (default `utf-8`). Useful if you encounter encoding errors, in which case you can try `latin1` or `utf-8-sig`.
+- `--input-sep <str>`: Separator for the input CSV file (default `,`). If your CSV uses semicolons (common in Europe), pass `--input-sep semi` or `--input-sep ";"`.
+- `--output-decimal-sep <str>`: Decimal separator for the output marks (default `.`). Use `,` if your locale requires comma decimals (e.g., `--output-decimal-sep ","`).
+- `--simplify-csv`: If set, the output CSV (`*_with_marks.csv`) will only keep the columns specified by `--id-column`, `--name-column`, and `--mark-column`. This is useful for creating a clean file for importing into a gradebook.
+- `--name-column <name>`: Column name in input file containing student names. Required if `--simplify-csv` is used.
+
+**Scoring Arguments:**
+
+- `--penalty <float>`: Score penalty for wrong answers (e.g., `0.333333`). Default is `0.0`. Formula: `score = correct_answers - (wrong_answers * penalty)`. Note that `wrong_answers` does not include blank/unanswered questions.
+
+**Other Arguments:**
+
+- `--void-questions <str>`: Comma-separated list of question numbers to exclude from scoring.
+- `--void-questions-nicely <str>`: Comma-separated list of question IDs to void "nicely".
+- `--only-analysis`: Skip the image processing step (OCR/OMR) and proceed directly to the analysis and grading phase using an existing `correction_results.csv`. 
+
+This command wraps `pexams correct` but adds the crucial step of **linking the results of the test correction back to your original questions**, storing total answers and answer distributions in `metadata.tsv`.
+
+---
+
 ### Command Line Options
 
 #### `autotestia generate`
@@ -268,7 +304,7 @@ autotestia export pexams generated/exam_questions.md \
 *   `--language`: Language for questions (default: `en`).
 
 #### `autotestia export <format>`
-This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`, `gift`, `none`).
+This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`, `gift`, `rexams`).
 
 *   `input_md_path`: (Positional) Path to the `questions.md` file.
 *   `--shuffle-questions [SEED]`: Shuffle the order of questions.
@@ -292,6 +328,14 @@ This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`,
 *   `--custom-header <str>`: Markdown string or path to a Markdown file to insert before the questions (e.g., instructions).
 
 For more information on the available arguments for `pexams`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
+
+#### `autotestia evaluate-missing`
+
+Run the evaluator on questions that are missing evaluation data for any stage.
+
+```bash
+autotestia evaluate-missing generated/questions.md --stages generated reviewed final --language en
+```
 
 ---
 
@@ -347,7 +391,8 @@ The test workflow is as follows:
 6.  **Simulate manual edits** on the markdown file (changing a question ID and content).
 7.  **Export** the final questions to Wooclap, Moodle XML, and `pexams` formats.
 8.  For `pexams`, it generates simulated scan sheets.
-9.  **Correct** the simulated `pexams` scans.
+9.  **Correct** the simulated `pexams` scans and **verify statistics updates**.
+10. **Test Evaluate Missing** command.
 
 All artifacts from this command are saved in the `generated_test/` directory, which is ignored by git.
 
@@ -356,39 +401,3 @@ All artifacts from this command are saved in the `generated_test/` directory, wh
 # Ensure your API keys are set in the .env file
 autotestia test --log-level INFO
 ```
-
----
-
-### Correcting Exams
-
-**NOTE:** The `autotestia correct` command has been removed. Please use the `pexams` CLI tool directly for correcting exams generated with the `pexams` export format.
-
-To correct exams:
-
-```bash
-pexams correct \
-    --input-path path/to/scanned_images_or_pdf \
-    --exam-dir path/to/generated_output_dir \
-    --output-dir path/to/results_dir \
-    [OPTIONS]
-```
-
-**Common Options:**
-*   `--input-path`: Path to the scanned PDF or a folder of scanned images.
-*   `--exam-dir`: Path to the directory containing the generated `pexams` files (e.g., `exam_model_..._questions.json`).
-*   `--output-dir`: Directory where the correction results will be saved.
-*   `--void-questions`: Comma-separated list of question numbers to exclude from scoring.
-*   `--void-questions-nicely`: Comma-separated list of question IDs to void "nicely".
-*   `--input-csv`: Path to an input CSV/XLSX/TSV file containing student IDs.
-*   `--id-column`: Column name in input file containing student IDs.
-*   `--mark-column`: Column name to fill with marks.
-*   `--fuzzy-id-match`: Threshold for fuzzy matching of IDs (0-100).
-*   `--input-encoding`: Encoding of the input CSV file (e.g., 'utf-8', 'latin-1').
-*   `--penalty`: Penalty for incorrect answers (positive value, e.g., 0.25 for -0.25 points).
-*   - `--input-sep <str>`: Separator for the input CSV file (default `,`). If your CSV uses semicolons (common in Europe), pass `--input-sep semi` or `--input-sep ";"`.
-*   `--output-decimal-sep <str>`: Decimal separator for the output marks (default `.`). Use `,` if your locale requires comma decimals (e.g., `--output-decimal-sep ","`).
-*   `--simplify-csv`: If set, the output CSV (`*_with_marks.csv`) will only keep the columns specified by `--id-column`, `--name-column`, and `--mark-column`. This is useful for creating a clean file for importing into a gradebook.
-*   `--name-column <name>`: Column name in input file containing student names. Required if `--simplify-csv` is used.
-*   - `--only-analysis`: Skip the image processing step (OCR/OMR) and proceed directly to the analysis and grading phase using an existing `correction_results.csv`. 
-
-For more information on the available arguments for `pexams correct`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)

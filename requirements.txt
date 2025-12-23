@@ -26,4 +26,4 @@ unidecode>=1.0.0
 pdf2image>=1.16.0 # For PDF to image conversion
 opencv-python>=4.7.0 # For image processing (cv2)
 tqdm>=4.62.0 # For progress bars
-pexams>=0.7.0 # For exam generation and correction, and exporting to many formats
+pexams>=0.10.0 # For exam generation and correction, and exporting to many formats

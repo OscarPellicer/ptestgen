@@ -28,6 +28,8 @@ METADATA_COLUMNS = [
     "changes_gen_rev_status", "changes_gen_rev_lev_question", "changes_gen_rev_lev_answers", "changes_gen_rev_rel_lev_question", "changes_gen_rev_rel_lev_answers",
     # Changes Rev -> Man
     "changes_rev_man_status", "changes_rev_man_lev_question", "changes_rev_man_lev_answers", "changes_rev_man_rel_lev_question", "changes_rev_man_rel_lev_answers",
+    # Stats
+    "stats_total_answers", "stats_answer_distribution",
 ]
 
 def generate_question_id(input_material_path: Optional[str] = None) -> str:
@@ -125,6 +127,12 @@ def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
         row["changes_rev_man_lev_answers"] = str(changes.levenshtein_answers)
         row["changes_rev_man_rel_lev_question"] = f"{changes.rel_levenshtein_question:.4f}"
         row["changes_rev_man_rel_lev_answers"] = f"{changes.rel_levenshtein_answers:.4f}"
+
+    # --- Stats ---
+    if record.stats_total_answers is not None:
+        row["stats_total_answers"] = str(record.stats_total_answers)
+    if record.stats_answer_distribution is not None:
+        row["stats_answer_distribution"] = json.dumps(record.stats_answer_distribution, ensure_ascii=False)
 
     return row
 
@@ -268,6 +276,18 @@ def _deserialize_record(row: Dict[str, str]) -> QuestionRecord:
         except (ValueError, KeyError):
             logging.warning(f"Could not parse rev->man change metrics for {record.question_id}")
     
+    # --- Deserialize Stats ---
+    if row.get("stats_total_answers"):
+        try:
+            record.stats_total_answers = int(row["stats_total_answers"])
+        except ValueError:
+            pass
+    if row.get("stats_answer_distribution"):
+        try:
+            record.stats_answer_distribution = json.loads(row["stats_answer_distribution"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     return record
 
 

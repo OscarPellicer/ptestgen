@@ -17,6 +17,8 @@ from autotestia import artifacts # Import artifacts module
 from autotestia.split import handle_split_command
 from autotestia.merge import handle_merge_command
 from autotestia.shuffle import handle_shuffle_command
+from autotestia.correct import handle_correct
+from autotestia.evaluate import handle_evaluate_missing
 
 
 def setup_logging(log_level):
@@ -52,7 +54,8 @@ def handle_test(args):
             reviewer_model="google/gemini-2.5-flash",
             evaluator_model="google/gemini-2.5-flash",
             use_llm_review=True, language="es",
-            evaluate_initial=True, evaluate_reviewed=True
+            evaluate_initial=True, evaluate_reviewed=True,
+            num_questions_per_image=1
         )
         handle_generate(args_gen_or)
 
@@ -66,7 +69,8 @@ def handle_test(args):
             reviewer_model="gpt-4o-mini", 
             evaluator_model="gpt-4o",
             use_llm_review=True, language="es",
-            evaluate_initial=True, evaluate_reviewed=True
+            evaluate_initial=True, evaluate_reviewed=True,
+            num_questions_per_image=1
         )
         handle_generate(args_gen_openai)
 
@@ -174,19 +178,51 @@ def handle_test(args):
             'columns': 2,
             'font_size': '10pt',
             'custom_header': '## Instructions\nAnswer the questions carefully.',
+            'shuffle_answers': 42 # Explicitly test deterministic answer shuffling
         })
         args_export_pexams = argparse.Namespace(format='pexams', **pexams_export_args)
         handle_export(args_export_pexams)
 
-        # --- 7. Correct (Skipped) ---
-        print("\n--- Step 7: Correcting pexams scans ---")
+        # --- 7. Correct (New) ---
+        print("\n--- Step 7: Correcting pexams scans via autotestia correct ---")
         base_name = os.path.splitext(os.path.basename(merged_md_path))[0]
         pexams_output_dir = os.path.join(output_dir, f"{base_name}_pexams_output")
         simulated_scans_dir = os.path.join(pexams_output_dir, "simulated_scans")
         correction_dir = os.path.join(pexams_output_dir, "correction_results")
         
-        print("Correction via AutoTestIA is deprecated. Please run 'pexams correct' directly.")
-        print(f"Example command:\npexams correct --input-path \"{simulated_scans_dir}\" --exam-dir \"{pexams_output_dir}\" --output-dir \"{correction_dir}\" --input-encoding utf-8 --penalty 0.25")
+        args_correct = argparse.Namespace(
+            input_md_path=merged_md_path,
+            input_path=simulated_scans_dir,
+            exam_dir=pexams_output_dir,
+            output_dir=correction_dir,
+            evaluate_final=True, # Test the new evaluation feature
+            evaluator_instructions=None,
+            lang="en",
+            void_questions=None, void_questions_nicely=None,
+            input_csv=None, id_column=None, mark_column=None, name_column=None, simplify_csv=False,
+            fuzzy_id_match=100, penalty=0.0, input_encoding="utf-8", input_sep=",", output_decimal_sep=".",
+            only_analysis=False
+        )
+        handle_correct(args_correct)
+
+        # Verify stats update
+        shuffled_tsv_path = artifacts.get_artifact_paths(merged_md_path)[1]
+        records = artifacts.read_metadata_tsv(shuffled_tsv_path)
+        stats_updated = any(r.stats_total_answers is not None for r in records)
+        if stats_updated:
+            print("Verified: Statistics have been updated in the metadata TSV.")
+        else:
+            print("WARNING: Statistics were NOT updated in the metadata TSV (this might be expected if pexams fakes were skipped, but fakes were enabled).")
+
+        # --- 8. Evaluate Missing (New) ---
+        print("\n--- Step 8: Testing evaluate-missing command ---")
+        args_eval_missing = argparse.Namespace(
+            input_md_path=merged_md_path,
+            stages=['generated', 'reviewed', 'final'],
+            evaluator_instructions=None,
+            language="en"
+        )
+        handle_evaluate_missing(args_eval_missing)
         
         print("\n--- Test command finished successfully! ---")
     
@@ -398,14 +434,43 @@ def main():
     parser_pexams.add_argument("--custom-header", help="Markdown string or path to a Markdown file to insert before the questions (e.g., instructions).")
 
     # Rexams subparser
-    export_subparsers.add_parser("rexams", parents=[common_parser, export_common_parser, exam_parser], help="[DEPRECATED] Export to R/exams format.")
+    export_subparsers.add_parser("rexams", parents=[common_parser, export_common_parser, exam_parser], help="Export to R/exams format.")
 
     parser_export.set_defaults(func=handle_export)
 
-    # --- Correct Command (Deprecated/Removed) ---
-    parser_correct = subparsers.add_parser("correct", help="[DEPRECATED] To correct exams, please use the 'pexams' CLI tool directly.")
-    parser_correct.add_argument('args', nargs=argparse.REMAINDER)
-    parser_correct.set_defaults(func=lambda x: print("The 'correct' command has been removed from AutoTestIA. Please use the 'pexams correct' command directly.\n\nExample:\npexams correct --input-path ... --exam-dir ... --output-dir ... --input-encoding utf-8 --penalty 0.25"))
+    # --- Correct Command ---
+    parser_correct = subparsers.add_parser("correct", help="Correct scanned exams using pexams and update metadata.", parents=[common_parser])
+    parser_correct.add_argument("input_md_path", help="Path to the original questions.md file (to update statistics in metadata.tsv).")
+    parser_correct.add_argument("--input-path", required=False, help="Path to the scanned PDF or folder of images.")
+    parser_correct.add_argument("--exam-dir", required=True, help="Path to the directory containing exam models (JSONs).")
+    parser_correct.add_argument("--output-dir", required=True, help="Directory to save correction results.")
+    parser_correct.add_argument("--evaluate-final", action="store_true", help="Run evaluator on the questions if not already evaluated.")
+    parser_correct.add_argument("--evaluator-instructions", type=str, default=None, help="Custom instructions for the evaluator prompt.")
+    parser_correct.add_argument("--lang", default=config.DEFAULT_LANGUAGE, help="Language for evaluation.")
+    
+    # Pexams arguments
+    parser_correct.add_argument("--void-questions", default=None, help="Comma-separated list of question numbers to void.")
+    parser_correct.add_argument("--void-questions-nicely", default=None, help="Comma-separated list of question IDs to void nicely.")
+    parser_correct.add_argument("--input-csv", help="Path to input CSV for filling marks.")
+    parser_correct.add_argument("--id-column", help="Column name for student IDs.")
+    parser_correct.add_argument("--mark-column", help="Column name for marks.")
+    parser_correct.add_argument("--name-column", help="Column name for student names.")
+    parser_correct.add_argument("--simplify-csv", action="store_true", help="Simplify the output CSV.")
+    parser_correct.add_argument("--fuzzy-id-match", type=int, default=100, help="Fuzzy matching threshold (0-100).")
+    parser_correct.add_argument("--penalty", type=float, default=0.0, help="Penalty for incorrect answers (positive float).")
+    parser_correct.add_argument("--input-encoding", default="utf-8", help="Encoding of input CSV.")
+    parser_correct.add_argument("--input-sep", default=",", help="Separator for input CSV.")
+    parser_correct.add_argument("--output-decimal-sep", default=".", help="Decimal separator for output marks.")
+    parser_correct.add_argument("--only-analysis", action="store_true", help="Skip image processing and run analysis on existing results.")
+    parser_correct.set_defaults(func=handle_correct)
+
+    # --- Evaluate Missing Command ---
+    parser_eval_missing = subparsers.add_parser("evaluate-missing", help="Run evaluator on questions with missing evaluations.", parents=[common_parser])
+    parser_eval_missing.add_argument("input_md_path", help="Path to the questions.md file.")
+    parser_eval_missing.add_argument("--stages", nargs='+', choices=['generated', 'reviewed', 'final'], default=['generated', 'reviewed', 'final'], help="Stages to check for missing evaluations.")
+    parser_eval_missing.add_argument("--evaluator-instructions", type=str, default=None, help="Custom instructions for the evaluator prompt.")
+    parser_eval_missing.add_argument("--language", default=config.DEFAULT_LANGUAGE, help="Language for evaluation.")
+    parser_eval_missing.set_defaults(func=handle_evaluate_missing)
 
 
     # --- Split Command ---

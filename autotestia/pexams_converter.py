@@ -50,6 +50,7 @@ def convert_autotestia_to_pexam(
         pexam_questions.append(
             PexamQuestion(
                 id=i + 1,  # Use sequential ID for pexams
+                original_id=record.question_id, # Preserve original ID
                 text=latest_content.text,
                 options=options,
                 explanation=latest_content.explanation or "",

@@ -4,6 +4,7 @@ import logging
 import sys
 import random
 import shutil
+import copy
 
 from . import config
 from .schemas import QuestionRecord, QuestionStage, QuestionContent, EvaluationData
@@ -14,7 +15,7 @@ from .agents.evaluator import QuestionEvaluator
 from . import pexams_converter
 from . import artifacts
 
-from pexams import generate_exams
+from pexams import generate_exams, utils
 from pexams.io import (
     gift_converter as pexams_gift,
     moodle_xml_converter as pexams_moodle,
@@ -237,7 +238,8 @@ class AutoTestIAPipeline:
                evaluate_final: bool = False,
                evaluator_instructions: Optional[str] = None,
                max_image_width: Optional[int] = None,
-               max_image_height: Optional[int] = None
+               max_image_height: Optional[int] = None,
+               custom_header: Optional[str] = None
                ):
         """
         Runs the export part of the pipeline.
@@ -258,24 +260,12 @@ class AutoTestIAPipeline:
         
         questions_for_conversion = records_to_export
 
-        # Shuffling and Selection (now on records)
-        if shuffle_questions_seed is not None:
-            print(f"Shuffling question order using seed: {shuffle_questions_seed}...")
-            random.Random(shuffle_questions_seed).shuffle(questions_for_conversion)
-
+        # Subset Selection
         if num_final_questions is not None and 0 < num_final_questions < len(questions_for_conversion):
             print(f"Selecting random subset of {num_final_questions} questions...")
-            questions_for_conversion = random.sample(questions_for_conversion, num_final_questions)
-
-        # Answer Shuffling (directly on the content)
-        if shuffle_answers_seed is not None:
-            print(f"Shuffling answers within questions using seed: {shuffle_answers_seed}...")
-            for record in questions_for_conversion:
-                content = record.get_latest_content()
-                # Create a mutable list of distractors to shuffle
-                distractors = list(content.distractors)
-                random.Random(shuffle_answers_seed or None).shuffle(distractors)
-                content.distractors = distractors
+            # Use seed if provided for deterministic selection, otherwise global random
+            rng = random.Random(shuffle_questions_seed) if shuffle_questions_seed is not None else random
+            questions_for_conversion = rng.sample(questions_for_conversion, num_final_questions)
 
         if output_formats == ["none"]:
             print("Output format is 'none', skipping file generation.")
@@ -287,12 +277,22 @@ class AutoTestIAPipeline:
         output_dir_for_conversions = os.path.dirname(input_md_path)
 
         # Convert to PexamQuestion objects
-        pexam_questions = pexams_converter.convert_autotestia_to_pexam(
+        pexam_questions_base = pexams_converter.convert_autotestia_to_pexam(
             records=questions_for_conversion,
             input_md_path=input_md_path,
             max_image_width=max_image_width,
             max_image_height=max_image_height
         )
+
+        # Set fixed seeds for this export run to ensure consistency across formats
+        # If no seed provided, generate one random seed to use for ALL formats in this run
+        effective_q_seed = shuffle_questions_seed
+        if effective_q_seed is None:
+            # Generate a random seed if none provided, so all formats get SAME random shuffle
+            effective_q_seed = random.randint(0, 2**32 - 1)
+            logging.info(f"No shuffle seed provided. Using generated seed {effective_q_seed} for consistency across formats.")
+
+        effective_a_seed = shuffle_answers_seed if shuffle_answers_seed is not None else 42
 
         for fmt in output_formats:
             print(f"Exporting to format: {fmt}")
@@ -301,12 +301,19 @@ class AutoTestIAPipeline:
             suffix = f"_{fmt}_output" if fmt == 'pexams' else ""
             output_base = os.path.join(output_dir_for_conversions, f"{base_filename}{suffix}")
             
+            # Set global seeds for this iteration to ensure consistency/determinism
+            utils.set_seeds(seed_questions=effective_q_seed, seed_answers=effective_a_seed)
+
+            # Always work on a copy to avoid side effects (e.g. pexams modifying list in-place)
+            questions_to_export = copy.deepcopy(pexam_questions_base)
+
             if fmt == 'pexams':
                 output_dir = output_base
                 os.makedirs(output_dir, exist_ok=True)
                 
+                # generate_exams handles shuffling internally using the global seeds
                 generate_exams.generate_exams(
-                    questions=pexam_questions,
+                    questions=questions_to_export,
                     output_dir=output_dir,
                     num_models=int(exam_models),
                     exam_title=exam_title if exam_title is not None else "Final Exam",
@@ -319,33 +326,46 @@ class AutoTestIAPipeline:
                     generate_references=generate_references,
                     keep_html=keep_html,
                     total_students=total_students,
-                    extra_model_templates=extra_model_templates
+                    extra_model_templates=extra_model_templates,
+                    # shuffle_questions removed, handled via utils.set_seeds
+                    # seed_answers removed, handled via utils.set_seeds
+                    custom_header=custom_header
                 )
                 print(f"Pexams outputs generated in: {os.path.abspath(output_dir)}")
 
-            elif fmt == 'rexams':
-                # rexams needs a directory
-                output_dir = f"{output_base}_rexams"
-                os.makedirs(output_dir, exist_ok=True)
-                pexams_rexams.prepare_for_rexams(pexam_questions, output_dir)
-                print(f"R/exams files generated in: {os.path.abspath(output_dir)}")
-            
-            elif fmt == 'wooclap':
-                output_file = f"{output_base}_wooclap.csv"
-                pexams_wooclap.convert_to_wooclap(pexam_questions, output_file)
-                print(f"Wooclap file generated at: {os.path.abspath(output_file)}")
-
-            elif fmt == 'gift':
-                output_file = f"{output_base}.gift"
-                pexams_gift.convert_to_gift(pexam_questions, output_file)
-                print(f"GIFT file generated at: {os.path.abspath(output_file)}")
-
-            elif fmt == 'moodle_xml':
-                output_file = f"{output_base}_moodle.xml"
-                pexams_moodle.convert_to_moodle_xml(pexam_questions, output_file)
-                print(f"Moodle XML file generated at: {os.path.abspath(output_file)}")
-            
             else:
-                logging.error(f"Unknown format: {fmt}")
+                # For other formats, we must shuffle manually
+                # (questions_to_export is already a copy)
+                
+                # Apply shuffling
+                utils.shuffle_questions_list(questions_to_export)
+                for q in questions_to_export:
+                    utils.shuffle_options_for_question(q)
+
+                if fmt == 'rexams':
+                    # rexams needs a directory
+                    output_dir = f"{output_base}_rexams"
+                    os.makedirs(output_dir, exist_ok=True)
+                    pexams_rexams.prepare_for_rexams(questions_to_export, output_dir)
+                    print(f"R/exams files generated in: {os.path.abspath(output_dir)}")
+                
+                elif fmt == 'wooclap':
+                    output_file = f"{output_base}_wooclap.csv"
+                    pexams_wooclap.convert_to_wooclap(questions_to_export, output_file)
+                    print(f"Wooclap file generated at: {os.path.abspath(output_file)}")
+
+                elif fmt == 'gift':
+                    output_file = f"{output_base}.gift"
+                    pexams_gift.convert_to_gift(questions_to_export, output_file)
+                    print(f"GIFT file generated at: {os.path.abspath(output_file)}")
+
+                elif fmt == 'moodle_xml':
+                    output_file = f"{output_base}_moodle.xml"
+                    pexams_moodle.convert_to_moodle_xml(questions_to_export, output_file)
+                    print(f"Moodle XML file generated at: {os.path.abspath(output_file)}")
+                
+                else:
+                    logging.error(f"Unknown format: {fmt}")
+
 
         print("\n--- Export Pipeline Finished ---") 

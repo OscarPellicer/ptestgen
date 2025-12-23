@@ -61,6 +61,10 @@ class QuestionRecord(BaseModel):
     changes_gen_to_rev: Optional[ChangeMetrics] = None
     changes_rev_to_man: Optional[ChangeMetrics] = None
 
+    # Stats
+    stats_total_answers: Optional[int] = None
+    stats_answer_distribution: Optional[Dict[str, int]] = None
+
     def get_latest_content(self) -> QuestionContent:
         """Returns the most recent version of the question's content."""
         if self.final:
