@@ -8,9 +8,9 @@ from . import config
 from .pipeline import AutoTestIAPipeline
 from .schemas import QuestionStage
 
-def handle_evaluate_missing(args):
-    """Handler for the 'evaluate-missing' command."""
-    logging.info("Running EVALUATE MISSING command...")
+def handle_evaluate(args):
+    """Handler for the 'evaluate' command."""
+    logging.info(f"Running EVALUATE command (missing_only={args.missing_only})...")
 
     # --- 1. Validation ---
     md_path, tsv_path = artifacts.get_artifact_paths(args.input_md_path)
@@ -39,9 +39,9 @@ def handle_evaluate_missing(args):
     # So filter lists for each stage.
 
     if 'generated' in stages_to_check:
-        to_eval = [r for r in records if r.generated and r.generated.content and not r.generated.evaluation]
+        to_eval = [r for r in records if r.generated and r.generated.content and (not args.missing_only or not r.generated.evaluation)]
         if to_eval:
-            logging.info(f"Found {len(to_eval)} records missing GENERATED evaluation.")
+            logging.info(f"Found {len(to_eval)} records for GENERATED evaluation.")
             pipeline.evaluator.evaluate_records(
                 to_eval,
                 stage=QuestionStage.GENERATED,
@@ -51,9 +51,9 @@ def handle_evaluate_missing(args):
             total_evaluated += len(to_eval)
 
     if 'reviewed' in stages_to_check:
-        to_eval = [r for r in records if r.reviewed and r.reviewed.content and not r.reviewed.evaluation]
+        to_eval = [r for r in records if r.reviewed and r.reviewed.content and (not args.missing_only or not r.reviewed.evaluation)]
         if to_eval:
-            logging.info(f"Found {len(to_eval)} records missing REVIEWED evaluation.")
+            logging.info(f"Found {len(to_eval)} records for REVIEWED evaluation.")
             pipeline.evaluator.evaluate_records(
                 to_eval,
                 stage=QuestionStage.REVIEWED,
@@ -63,9 +63,9 @@ def handle_evaluate_missing(args):
             total_evaluated += len(to_eval)
 
     if 'final' in stages_to_check:
-        to_eval = [r for r in records if r.final and r.final.content and not r.final.evaluation]
+        to_eval = [r for r in records if r.final and r.final.content and (not args.missing_only or not r.final.evaluation)]
         if to_eval:
-            logging.info(f"Found {len(to_eval)} records missing FINAL evaluation.")
+            logging.info(f"Found {len(to_eval)} records for FINAL evaluation.")
             pipeline.evaluator.evaluate_records(
                 to_eval,
                 stage=QuestionStage.FINAL,
@@ -79,5 +79,5 @@ def handle_evaluate_missing(args):
         artifacts.write_metadata_tsv(records, tsv_path)
         logging.info(f"Updated evaluations for {total_evaluated} stages/records.")
     else:
-        logging.info("No missing evaluations found.")
+        logging.info("No evaluations needed.")
 

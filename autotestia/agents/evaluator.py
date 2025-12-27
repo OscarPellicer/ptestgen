@@ -110,6 +110,8 @@ class QuestionEvaluator(BaseAgent):
                     if guessed_idx is not None:
                         evaluation_result.evaluator_guessed_correctly = (int(guessed_idx) == 1)
                     evaluation_result.evaluation_comments = parsed_eval.get("evaluation_comment")
+                    if self.provider:
+                        evaluation_result.evaluation_model = f"{self.llm_provider_name}::{self.provider.model_name}"
                     return evaluation_result
                 except (ValueError, TypeError) as e:
                     logging.warning(f"LLM returned one or more invalid evaluation fields: {e}")

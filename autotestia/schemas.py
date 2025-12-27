@@ -30,6 +30,7 @@ class EvaluationData(BaseModel):
     distractor_plausibility_score: Optional[float] = None
     evaluation_comments: Optional[str] = None
     evaluator_guessed_correctly: Optional[bool] = None
+    evaluation_model: Optional[str] = None
 
 class ChangeMetrics(BaseModel):
     """Stores metrics about the changes between two stages of a question."""

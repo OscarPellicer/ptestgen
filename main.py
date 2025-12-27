@@ -18,7 +18,7 @@ from autotestia.split import handle_split_command
 from autotestia.merge import handle_merge_command
 from autotestia.shuffle import handle_shuffle_command
 from autotestia.correct import handle_correct
-from autotestia.evaluate import handle_evaluate_missing
+from autotestia.evaluate import handle_evaluate
 
 
 def setup_logging(log_level):
@@ -214,15 +214,16 @@ def handle_test(args):
         else:
             print("WARNING: Statistics were NOT updated in the metadata TSV (this might be expected if pexams fakes were skipped, but fakes were enabled).")
 
-        # --- 8. Evaluate Missing (New) ---
-        print("\n--- Step 8: Testing evaluate-missing command ---")
-        args_eval_missing = argparse.Namespace(
+        # --- 8. Evaluate (New) ---
+        print("\n--- Step 8: Testing evaluate command ---")
+        args_eval = argparse.Namespace(
             input_md_path=merged_md_path,
             stages=['generated', 'reviewed', 'final'],
             evaluator_instructions=None,
-            language="en"
+            language="en",
+            missing_only=True
         )
-        handle_evaluate_missing(args_eval_missing)
+        handle_evaluate(args_eval)
         
         print("\n--- Test command finished successfully! ---")
     
@@ -464,13 +465,14 @@ def main():
     parser_correct.add_argument("--only-analysis", action="store_true", help="Skip image processing and run analysis on existing results.")
     parser_correct.set_defaults(func=handle_correct)
 
-    # --- Evaluate Missing Command ---
-    parser_eval_missing = subparsers.add_parser("evaluate-missing", help="Run evaluator on questions with missing evaluations.", parents=[common_parser])
-    parser_eval_missing.add_argument("input_md_path", help="Path to the questions.md file.")
-    parser_eval_missing.add_argument("--stages", nargs='+', choices=['generated', 'reviewed', 'final'], default=['generated', 'reviewed', 'final'], help="Stages to check for missing evaluations.")
-    parser_eval_missing.add_argument("--evaluator-instructions", type=str, default=None, help="Custom instructions for the evaluator prompt.")
-    parser_eval_missing.add_argument("--language", default=config.DEFAULT_LANGUAGE, help="Language for evaluation.")
-    parser_eval_missing.set_defaults(func=handle_evaluate_missing)
+    # --- Evaluate Command ---
+    parser_evaluate = subparsers.add_parser("evaluate", help="Run evaluator on questions.", parents=[common_parser])
+    parser_evaluate.add_argument("input_md_path", help="Path to the questions.md file.")
+    parser_evaluate.add_argument("--stages", nargs='+', choices=['generated', 'reviewed', 'final'], default=['generated', 'reviewed', 'final'], help="Stages to evaluate.")
+    parser_evaluate.add_argument("--evaluator-instructions", type=str, default=None, help="Custom instructions for the evaluator prompt.")
+    parser_evaluate.add_argument("--language", default=config.DEFAULT_LANGUAGE, help="Language for evaluation.")
+    parser_evaluate.add_argument("--missing-only", action="store_true", help="Only evaluate questions missing an evaluation.")
+    parser_evaluate.set_defaults(func=handle_evaluate)
 
 
     # --- Split Command ---

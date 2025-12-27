@@ -18,10 +18,10 @@ METADATA_COLUMNS = [
     "question_id", "source_material", "image_reference",
     # Generated Stage
     "generated_text", "generated_answers_json",
-    "generated_eval_difficulty", "generated_eval_pedagogy", "generated_eval_clarity", "generated_eval_distractors", "generated_eval_comments", "generated_eval_guessed_correctly",
+    "generated_eval_difficulty", "generated_eval_pedagogy", "generated_eval_clarity", "generated_eval_distractors", "generated_eval_comments", "generated_eval_guessed_correctly", "generated_eval_model",
     # Reviewed Stage
     "reviewed_text", "reviewed_answers_json",
-    "reviewed_eval_difficulty", "reviewed_eval_pedagogy", "reviewed_eval_clarity", "reviewed_eval_distractors", "reviewed_eval_comments", "reviewed_eval_guessed_correctly",
+    "reviewed_eval_difficulty", "reviewed_eval_pedagogy", "reviewed_eval_clarity", "reviewed_eval_distractors", "reviewed_eval_comments", "reviewed_eval_guessed_correctly", "reviewed_eval_model",
     # Final Stage
     "final_text", "final_answers_json",
     # Changes Gen -> Rev
@@ -78,6 +78,7 @@ def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
             row["generated_eval_distractors"] = str(eval_data.distractor_plausibility_score or "")
             row["generated_eval_comments"] = _escape_tsv_field(eval_data.evaluation_comments)
             row["generated_eval_guessed_correctly"] = str(eval_data.evaluator_guessed_correctly or "")
+            row["generated_eval_model"] = _escape_tsv_field(eval_data.evaluation_model)
 
     # --- Reviewed Stage ---
     if record.reviewed:
@@ -97,6 +98,7 @@ def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
             row["reviewed_eval_distractors"] = str(eval_data.distractor_plausibility_score or "")
             row["reviewed_eval_comments"] = _escape_tsv_field(eval_data.evaluation_comments)
             row["reviewed_eval_guessed_correctly"] = str(eval_data.evaluator_guessed_correctly or "")
+            row["reviewed_eval_model"] = _escape_tsv_field(eval_data.evaluation_model)
 
     # --- Final Stage ---
     if record.final:
@@ -229,7 +231,8 @@ def _deserialize_record(row: Dict[str, str]) -> QuestionRecord:
                     clarity_score=float(row[f"{prefix}_eval_clarity"]),
                     distractor_plausibility_score=float(row[f"{prefix}_eval_distractors"]),
                     evaluation_comments=row[f"{prefix}_eval_comments"],
-                    evaluator_guessed_correctly=row[f"{prefix}_eval_guessed_correctly"].lower() == 'true'
+                    evaluator_guessed_correctly=row[f"{prefix}_eval_guessed_correctly"].lower() == 'true',
+                    evaluation_model=row.get(f"{prefix}_eval_model")
                 )
             except (ValueError, TypeError):
                 return None

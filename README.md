@@ -329,12 +329,12 @@ This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`,
 
 For more information on the available arguments for `pexams`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
 
-#### `autotestia evaluate-missing`
+#### `autotestia evaluate`
 
-Run the evaluator on questions that are missing evaluation data for any stage.
+Run the evaluator on questions. By default, it re-evaluates all specified stages. Use `--missing-only` to evaluate only questions that lack evaluation data.
 
 ```bash
-autotestia evaluate-missing generated/questions.md --stages generated reviewed final --language en
+autotestia evaluate generated/questions.md --stages generated reviewed final --language en --missing-only
 ```
 
 ---
