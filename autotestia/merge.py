@@ -18,8 +18,18 @@ def handle_merge_command(args):
             continue
         
         logging.info(f"Reading {md_path} and {tsv_path}")
+        
+        # Sync TSV with MD before reading to respect manual deletions
+        current_md_questions = artifacts.read_questions_md(md_path)
         records = artifacts.read_metadata_tsv(tsv_path)
+        records = artifacts.synchronize_artifacts(records, current_md_questions)
+        artifacts.write_metadata_tsv(records, tsv_path)
+
         for record in records:
+            # Only include questions that are currently present in the MD file
+            if record.question_id not in current_md_questions:
+                continue
+
             if record.question_id not in seen_ids:
                 all_records.append(record)
                 seen_ids.add(record.question_id)

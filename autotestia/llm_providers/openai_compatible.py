@@ -122,7 +122,20 @@ class OpenAICompatibleProvider(LLMProvider):
         completion = self._call_llm_with_retry(
             self.client.chat.completions.create, **params
         )
-        return completion.choices[0].message.content if completion else None
+        
+        if completion is None:
+            logging.error("LLM completion is None")
+            return None
+            
+        try:
+            return completion.choices[0].message.content
+        except Exception as e:
+            logging.error(f"Error accessing completion content. Completion object type: {type(completion)}")
+            if hasattr(completion, 'model_dump'):
+                 logging.error(f"Completion object dump: {completion.model_dump()}")
+            else:
+                 logging.error(f"Completion object: {completion}")
+            raise e
 
     def generate_question_from_image(self, system_prompt: str, user_prompt: str, image_path: str, num_distractors: int) -> Optional[str]:
         from ..schemas import LLMQuestionList
@@ -153,7 +166,12 @@ class OpenAICompatibleProvider(LLMProvider):
         completion = self._call_llm_with_retry(
             self.client.chat.completions.create, **params
         )
-        return completion.choices[0].message.content if completion else None
+
+        if not completion or not completion.choices:
+            logging.error(f"LLM completion failed or returned no choices. Completion object: {completion}")
+            return None
+
+        return completion.choices[0].message.content
 
     def review_question(self, system_prompt: str, question_json: str) -> Optional[str]:
         from ..schemas import LLMReview
@@ -166,7 +184,12 @@ class OpenAICompatibleProvider(LLMProvider):
         completion = self._call_llm_with_retry(
             self.client.chat.completions.create, **params
         )
-        return completion.choices[0].message.content if completion else None
+
+        if not completion or not completion.choices:
+            logging.error(f"LLM completion failed or returned no choices. Completion object: {completion}")
+            return None
+
+        return completion.choices[0].message.content
 
     def evaluate_question(self, system_prompt: str, question_json: str) -> Optional[str]:
         from ..schemas import LLMEvaluation
@@ -179,7 +202,12 @@ class OpenAICompatibleProvider(LLMProvider):
         completion = self._call_llm_with_retry(
             self.client.chat.completions.create, **params
         )
-        return completion.choices[0].message.content if completion else None
+
+        if not completion or not completion.choices:
+            logging.error(f"LLM completion failed or returned no choices. Completion object: {completion}")
+            return None
+
+        return completion.choices[0].message.content
     
     # We can move the full retry logic from BaseLLMAgent here later.
     # For now, inheriting the simple one from base.py

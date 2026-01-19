@@ -35,30 +35,30 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 # Check provider documentation for the latest/most appropriate model names.
 GENERATOR_MODEL_MAP = {
     "openai": os.getenv("OPENAI_GENERATOR_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_GENERATOR_MODEL", "gemini-2.5-pro"),
+    "google": os.getenv("GOOGLE_GENERATOR_MODEL", "gemini-3-pro-preview"),
     "anthropic": os.getenv("ANTHROPIC_GENERATOR_MODEL", "claude-sonnet-4-5"),
     "replicate": os.getenv("REPLICATE_GENERATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
-    "openrouter": os.getenv("OPENROUTER_GENERATOR_MODEL", "google/gemini-2.5-pro"),
+    "openrouter": os.getenv("OPENROUTER_GENERATOR_MODEL", "google/gemini-3-pro-preview"),
     "ollama": os.getenv("OLLAMA_GENERATOR_MODEL", "gemma3:4b"),
     "stub": "stub-generator-model"
 }
 
 REVIEWER_MODEL_MAP = { # Potentially use a cheaper model for review
     "openai": os.getenv("OPENAI_REVIEWER_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_REVIEWER_MODEL", "gemini-2.5-flash"),
+    "google": os.getenv("GOOGLE_REVIEWER_MODEL", "gemini-3-flash-preview"),
     "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-haiku-4-5"), 
     "replicate": os.getenv("REPLICATE_REVIEWER_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
-    "openrouter": os.getenv("OPENROUTER_REVIEWER_MODEL", "google/gemini-2.5-flash"),
+    "openrouter": os.getenv("OPENROUTER_REVIEWER_MODEL", "google/gemini-3-flash-preview"),
     "ollama": os.getenv("OLLAMA_REVIEWER_MODEL", "gemma3:4b"),
     "stub": "stub-reviewer-model"
 }
 
 EVALUATOR_MODEL_MAP = { # Potentially use a cheaper model for review
     "openai": os.getenv("OPENAI_EVALUATOR_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_EVALUATOR_MODEL", "gemini-2.5-flash"),
+    "google": os.getenv("GOOGLE_EVALUATOR_MODEL", "gemini-3-flash-preview"),
     "anthropic": os.getenv("ANTHROPIC_EVALUATOR_MODEL", "claude-haiku-4-5"), 
     "replicate": os.getenv("REPLICATE_EVALUATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
-    "openrouter": os.getenv("OPENROUTER_EVALUATOR_MODEL", "google/gemini-2.5-flash"),
+    "openrouter": os.getenv("OPENROUTER_EVALUATOR_MODEL", "google/gemini-3-flash-preview"),
     "ollama": os.getenv("OLLAMA_EVALUATOR_MODEL", "gemma3:4b"),
     "stub": "stub-evaluator-model"
 }

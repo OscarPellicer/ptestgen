@@ -316,7 +316,11 @@ def handle_export(args):
         return
 
     # --- Pipeline Execution for Export ---
-    pipeline = AutoTestIAPipeline() # No config override needed for export
+    config_override = {}
+    if args.evaluator_model:
+        config_override["evaluator_model"] = args.evaluator_model
+
+    pipeline = AutoTestIAPipeline(config_override=config_override)
     pipeline.export(
         records_to_export=records_to_export,
         input_md_path=md_path, # Pass the markdown path
@@ -400,6 +404,7 @@ def main():
     export_common_parser.add_argument("--shuffle-answers", type=int, metavar='SEED', nargs='?', const=random.randint(1, 10000), default=0, help="Shuffle answer order.")
     export_common_parser.add_argument("--num-final-questions", type=int, help="Randomly select N questions.")
     export_common_parser.add_argument("--evaluate-final", action="store_true", help="Run evaluator on the final questions.")
+    export_common_parser.add_argument("--evaluator-model", default=None, help="Specific model for the evaluator agent.")
     export_common_parser.add_argument("--evaluator-instructions", type=str, default=None, help="Custom instructions for the evaluator prompt.")
     export_common_parser.add_argument("--max-image-width", type=int, default=None, help="Maximum width for images in pixels.")
     export_common_parser.add_argument("--max-image-height", type=int, default=None, help="Maximum height for images in pixels.")
