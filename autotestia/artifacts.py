@@ -319,6 +319,9 @@ def read_questions_md(path: str) -> Dict[str, QuestionContent]:
     with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
 
+    # Remove HTML comments to prevent parsing errors
+    content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
+
     question_blocks = re.split(r'(?=^## )', content, flags=re.MULTILINE)
 
     for block in question_blocks:
