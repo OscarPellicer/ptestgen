@@ -129,12 +129,17 @@ class AutoTestIAPipeline:
             
             text_content = "\n\n---\n\n".join(all_text_content)
 
-        if not text_content and not image_paths:
-            logging.critical("No text could be extracted from input files and no images were provided. Cannot generate questions.")
+        # If there's no text, no images and no generator instructions, there's nothing to work with
+        if not text_content and not image_paths and not generator_instructions:
+            logging.critical("No text could be extracted from input files, no images were provided, and no generator instructions were given. Cannot generate questions.")
             sys.exit(1)
-            
+
         if not text_content:
-            print("\nStep 1: Parsing input material... (No text content found, proceeding with images only)")
+            if image_paths:
+                print("\nStep 1: Parsing input material... (No text content found, proceeding with images only)")
+            else:
+                # We may still proceed if generator_instructions is provided (e.g. CLI '--generator-instructions')
+                print("\nStep 1: Parsing input material... (No text content found, proceeding with generator instructions only)")
         
         # 2. Generate Questions
         print("\nStep 2: Generating questions...")
