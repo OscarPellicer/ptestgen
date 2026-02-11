@@ -96,7 +96,7 @@ DEFAULT_LANGUAGE = "Spanish"
 
 # --- Prompting ---
 GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$; don't use $$). DO NOT use newlines in the question text, answers or distractors. For each question, provide:
+You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$; don't use $$). DO NOT use newlines in the question text, answers or distractors. For each question, provide:
 - The question text.
 - The correct answer.
 - A list of distractors.
@@ -108,7 +108,7 @@ Output the questions as a JSON object with keys: "questions" (list of objects), 
 
 IMAGE_GENERATION_SYSTEM_PROMPT = """
 You are an AI assistant specialized in creating educational multiple-choice questions based on images.
-Given the provided image and optional context text, generate multiple-choice questions that require understanding the image content. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$; don't use $$).
+Given the provided image and optional context text, generate multiple-choice questions that require understanding the image content. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$; don't use $$).
 DO NOT use newlines in the question text, answers or distractors.
 For each question, provide:
 - The question text.
