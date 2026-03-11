@@ -2,13 +2,12 @@ import argparse
 import logging
 import os
 import sys
-import pandas as pd
-import json
 
 from . import artifacts
 from . import config
 from .pipeline import AutoTestIAPipeline
 from .schemas import QuestionStage
+from . import correct_online
 
 from pexams import correct_exams
 from pexams import analysis
@@ -80,57 +79,15 @@ def handle_correct(args):
 
     # --- 4. Read Stats and Update TSV ---
     stats_csv_path = os.path.join(args.output_dir, "question_stats.csv")
-    if os.path.exists(stats_csv_path):
-        logging.info(f"Reading statistics from {stats_csv_path} and updating metadata...")
-        
-        try:
-            stats_df = pd.read_csv(stats_csv_path)
-            records = artifacts.read_metadata_tsv(tsv_path)
-            
-            # Map stats to records using original_id -> question_id
-            records_map = {rec.question_id: rec for rec in records}
-            
-            updated_count = 0
-            for _, row in stats_df.iterrows():
-                original_id = str(row['original_id'])
-                if original_id in records_map:
-                    rec = records_map[original_id]
-                    
-                    rec.stats_total_answers = int(row['total_answers'])
-                    
-                    # Construct distribution dict
-                    dist = {}
-                    # Identify labels from count columns
-                    # We look for columns like option_A_count, option_B_count, etc.
-                    labels = [col.split('_')[1] for col in row.index 
-                              if col.startswith('option_') and col.endswith('_count')]
-                    
-                    for label in labels:
-                        count_col = f"option_{label}_count"
-                        text_col = f"option_{label}_text"
-                        
-                        try:
-                            count = int(row[count_col])
-                        except (ValueError, TypeError):
-                            count = 0
-                        
-                        # Use text as key if available, otherwise fallback to label (A, B, C...)
-                        if text_col in row and pd.notna(row[text_col]):
-                            text = str(row[text_col]).strip()
-                            dist[text] = count
-                        else:
-                            dist[label] = count
-                    
-                    rec.stats_answer_distribution = dist
-                    updated_count += 1
-            
-            artifacts.write_metadata_tsv(records, tsv_path)
-            logging.info(f"Updated statistics for {updated_count} questions in '{tsv_path}'.")
-            
-        except Exception as e:
-            logging.error(f"Failed to update metadata with statistics: {e}")
-    else:
-        logging.warning("question_stats.csv not found. Skipping metadata update.")
+    records = artifacts.read_metadata_tsv(tsv_path)
+    updated_count = correct_online.update_tsv_from_question_stats(
+        stats_csv_path=stats_csv_path,
+        records=records,
+        tsv_path=tsv_path,
+        source="pexams",
+    )
+    if updated_count >= 0:
+        logging.info(f"Updated statistics for {updated_count} questions in '{tsv_path}'.")
 
     # --- 5. Evaluate Final (Optional) ---
     if args.evaluate_final:

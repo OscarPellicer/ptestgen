@@ -6,6 +6,8 @@ import logging
 import random
 import shutil
 
+import pandas as pd
+
 # Load .env file BEFORE importing config or pipeline
 # This ensures environment variables are set when config is loaded
 load_dotenv()
@@ -18,6 +20,7 @@ from autotestia.split import handle_split_command
 from autotestia.merge import handle_merge_command
 from autotestia.shuffle import handle_shuffle_command
 from autotestia.correct import handle_correct
+from autotestia.correct_online import handle_correct_wooclap, handle_correct_moodle
 from autotestia.evaluate import handle_evaluate
 
 
@@ -50,29 +53,30 @@ def handle_test(args):
             input_material=None, output_md_path=or_md_path,
             generator_instructions=instructions, reviewer_instructions=None, evaluator_instructions=None,
             images=[image_path] if image_path else [], num_questions=test_questions, provider="openrouter",
-            generator_model="google/gemini-2.5-pro", # A quicker model for testing
-            reviewer_model="google/gemini-2.5-flash",
-            evaluator_model="google/gemini-2.5-flash",
+            generator_model="google/gemini-3-flash-preview", # A quicker model for testing
+            reviewer_model="google/gemini-3-flash-preview",
+            evaluator_model="google/gemini-3-flash-preview",
             use_llm_review=True, language="es",
             evaluate_initial=True, evaluate_reviewed=True,
             num_questions_per_image=1
         )
         handle_generate(args_gen_or)
 
-        print("\n--- Step 1b: Generating questions (OpenAI) ---")
-        openai_md_path = os.path.join(output_dir, "openai_questions.md")
-        args_gen_openai = argparse.Namespace(
-            input_material=None, output_md_path=openai_md_path,
-            generator_instructions=instructions, reviewer_instructions=None, evaluator_instructions=None,
-            images=[image_path] if image_path else [], num_questions=test_questions, provider="openai",
-            generator_model="gpt-4o", 
-            reviewer_model="gpt-4o-mini", 
-            evaluator_model="gpt-4o",
-            use_llm_review=True, language="es",
-            evaluate_initial=True, evaluate_reviewed=True,
-            num_questions_per_image=1
-        )
-        handle_generate(args_gen_openai)
+        # print("\n--- Step 1b: Generating questions (OpenAI) ---")
+        # openai_md_path = os.path.join(output_dir, "openai_questions.md")
+        # args_gen_openai = argparse.Namespace(
+        #     input_material=None, output_md_path=openai_md_path,
+        #     generator_instructions=instructions, reviewer_instructions=None, evaluator_instructions=None,
+        #     images=[image_path] if image_path else [], num_questions=test_questions, provider="openai",
+        #     generator_model="gpt-4o", 
+        #     reviewer_model="gpt-4o-mini", 
+        #     evaluator_model="gpt-4o",
+        #     use_llm_review=True, language="es",
+        #     evaluate_initial=True, evaluate_reviewed=True,
+        #     num_questions_per_image=1
+        # )
+        # handle_generate(args_gen_openai)
+        openai_md_path = None
 
         # --- 2. Split ---
         print("\n--- Step 2: Splitting test ---")
@@ -88,7 +92,7 @@ def handle_test(args):
         merged_md_path = os.path.join(output_dir, "merged_questions.md")
         split_files = [os.path.join(split_dir, f) for f in os.listdir(split_dir) if f.endswith('.md')]
         args_merge = argparse.Namespace(
-            input_md_paths=split_files + [openai_md_path],
+            input_md_paths=split_files + ([openai_md_path] if openai_md_path else []),
             output_md_path=merged_md_path
         )
         handle_merge_command(args_merge)
@@ -225,6 +229,73 @@ def handle_test(args):
         )
         handle_evaluate(args_eval)
         
+        # --- 9. Test online correction (wooclap & moodle) ---
+        print("\n--- Step 9: Testing online correction (wooclap & moodle) ---")
+        from autotestia.schemas import QuestionContent, QuestionRecord, QuestionStageContent
+
+        online_test_dir = os.path.join(output_dir, "online_correction_test")
+        os.makedirs(online_test_dir, exist_ok=True)
+
+        # Minimal synthetic records (no LLM needed)
+        def _sc(text, correct, distractors):
+            return QuestionStageContent(content=QuestionContent(text=text, correct_answer=correct, distractors=distractors))
+
+        synthetic_records = [
+            QuestionRecord(question_id="q_test_001", reviewed=_sc("What is 2 + 2?", "4", ["3", "5", "22"])),
+            QuestionRecord(question_id="q_test_002", reviewed=_sc("Capital of France?", "Paris", ["Berlin", "Madrid", "Rome"])),
+        ]
+        online_md_path = os.path.join(online_test_dir, "questions.md")
+        online_tsv_path = os.path.join(online_test_dir, "questions.tsv")
+        artifacts.write_artifacts(synthetic_records, online_md_path, online_tsv_path)
+
+        # Wooclap
+        wooclap_csv = os.path.join(online_test_dir, "wooclap_results.csv")
+        pd.DataFrame({
+            "Alumno": ["1", "2"],
+            "Q1 - What is 2 + 2? (1 pts)": ["V - 4", "X - 3"],
+            "Q2 - Capital of France? (1 pts)": ["V - Paris", "X - Berlin"],
+            "Total": ["2 / 2", "0 / 2"],
+        }).to_csv(wooclap_csv, index=False)
+
+        wooclap_out_dir = os.path.join(online_test_dir, "wooclap_output")
+        args_correct_wooclap = argparse.Namespace(
+            input_md_path=online_md_path, results=wooclap_csv, output_dir=wooclap_out_dir,
+            fuzzy_threshold=80, encoding="auto", sep="auto",
+            penalty=0.0, evaluate_final=False, evaluator_instructions=None, lang="en",
+            no_generate_report=True,
+        )
+        handle_correct_wooclap(args_correct_wooclap)
+        wooclap_correction_csv = os.path.join(wooclap_out_dir, "correction_results.csv")
+        if not os.path.exists(wooclap_correction_csv):
+            raise RuntimeError("Wooclap: correction_results.csv was not created.")
+        wc_df = pd.read_csv(wooclap_correction_csv)
+        assert len(wc_df) == 2, f"Wooclap: expected 2 students, got {len(wc_df)}"
+        print(f"Wooclap correction OK — {len(wc_df)} student(s) processed.")
+
+        # Moodle
+        moodle_csv = os.path.join(online_test_dir, "moodle_results.csv")
+        pd.DataFrame({
+            "Cognoms": ["Smith", "Jones"],
+            "Nom": ["Alice", "Bob"],
+            "Resposta 1": ["4", "3"],
+            "Resposta 2": ["Paris", "Berlin"],
+        }).to_csv(moodle_csv, index=False)
+
+        moodle_out_dir = os.path.join(online_test_dir, "moodle_output")
+        args_correct_moodle = argparse.Namespace(
+            input_md_path=online_md_path, results=moodle_csv, output_dir=moodle_out_dir,
+            question_order=None, encoding="auto", sep="auto",
+            penalty=0.0, evaluate_final=False, evaluator_instructions=None, lang="en",
+            no_generate_report=True,
+        )
+        handle_correct_moodle(args_correct_moodle)
+        moodle_correction_csv = os.path.join(moodle_out_dir, "correction_results.csv")
+        if not os.path.exists(moodle_correction_csv):
+            raise RuntimeError("Moodle: correction_results.csv was not created.")
+        mo_df = pd.read_csv(moodle_correction_csv)
+        assert len(mo_df) == 2, f"Moodle: expected 2 students, got {len(mo_df)}"
+        print(f"Moodle correction OK — {len(mo_df)} student(s) processed.")
+
         print("\n--- Test command finished successfully! ---")
     
     except Exception as e:
@@ -317,7 +388,7 @@ def handle_export(args):
 
     # --- Pipeline Execution for Export ---
     config_override = {}
-    if args.evaluator_model:
+    if getattr(args, "evaluator_model", None):
         config_override["evaluator_model"] = args.evaluator_model
 
     pipeline = AutoTestIAPipeline(config_override=config_override)
@@ -329,7 +400,7 @@ def handle_export(args):
         shuffle_answers_seed=args.shuffle_answers,
         num_final_questions=args.num_final_questions,
         evaluate_final=args.evaluate_final,
-        evaluator_instructions=args.evaluator_instructions,
+        evaluator_instructions=getattr(args, "evaluator_instructions", None),
         # Safely access exam-specific args that might not exist for all formats
         exam_title=getattr(args, 'exam_title', None),
         exam_course=getattr(args, 'exam_course', None),
@@ -444,31 +515,124 @@ def main():
 
     parser_export.set_defaults(func=handle_export)
 
-    # --- Correct Command ---
-    parser_correct = subparsers.add_parser("correct", help="Correct scanned exams using pexams and update metadata.", parents=[common_parser])
-    parser_correct.add_argument("input_md_path", help="Path to the original questions.md file (to update statistics in metadata.tsv).")
-    parser_correct.add_argument("--input-path", required=False, help="Path to the scanned PDF or folder of images.")
-    parser_correct.add_argument("--exam-dir", required=True, help="Path to the directory containing exam models (JSONs).")
-    parser_correct.add_argument("--output-dir", required=True, help="Directory to save correction results.")
-    parser_correct.add_argument("--evaluate-final", action="store_true", help="Run evaluator on the questions if not already evaluated.")
-    parser_correct.add_argument("--evaluator-instructions", type=str, default=None, help="Custom instructions for the evaluator prompt.")
-    parser_correct.add_argument("--lang", default=config.DEFAULT_LANGUAGE, help="Language for evaluation.")
-    
-    # Pexams arguments
-    parser_correct.add_argument("--void-questions", default=None, help="Comma-separated list of question numbers to void.")
-    parser_correct.add_argument("--void-questions-nicely", default=None, help="Comma-separated list of question IDs to void nicely.")
-    parser_correct.add_argument("--input-csv", help="Path to input CSV for filling marks.")
-    parser_correct.add_argument("--id-column", help="Column name for student IDs.")
-    parser_correct.add_argument("--mark-column", help="Column name for marks.")
-    parser_correct.add_argument("--name-column", help="Column name for student names.")
-    parser_correct.add_argument("--simplify-csv", action="store_true", help="Simplify the output CSV.")
-    parser_correct.add_argument("--fuzzy-id-match", type=int, default=100, help="Fuzzy matching threshold (0-100).")
-    parser_correct.add_argument("--penalty", type=float, default=0.0, help="Penalty for incorrect answers (positive float).")
-    parser_correct.add_argument("--input-encoding", default="utf-8", help="Encoding of input CSV.")
-    parser_correct.add_argument("--input-sep", default=",", help="Separator for input CSV.")
-    parser_correct.add_argument("--output-decimal-sep", default=".", help="Decimal separator for output marks.")
-    parser_correct.add_argument("--only-analysis", action="store_true", help="Skip image processing and run analysis on existing results.")
-    parser_correct.set_defaults(func=handle_correct)
+    # --- Correct Command (with subparsers for pexams / wooclap / moodle) ---
+    parser_correct = subparsers.add_parser(
+        "correct",
+        help="Correct exams (pexams scans, Wooclap results, or Moodle results) and update metadata.",
+        parents=[common_parser],
+    )
+    correct_subparsers = parser_correct.add_subparsers(
+        dest="source", required=True,
+        help="The source format of the student results.",
+    )
+
+    # Common args shared by all correct sub-subparsers
+    _correct_common = argparse.ArgumentParser(add_help=False)
+    _correct_common.add_argument(
+        "input_md_path",
+        help="Path to the questions.md file (used to update statistics in metadata.tsv).",
+    )
+    _correct_common.add_argument(
+        "--output-dir", required=True,
+        help="Directory to save correction results.",
+    )
+    _correct_common.add_argument(
+        "--evaluate-final", action="store_true",
+        help="Run the LLM evaluator on questions after correction.",
+    )
+    _correct_common.add_argument(
+        "--evaluator-instructions", type=str, default=None,
+        help="Custom instructions for the evaluator prompt.",
+    )
+    _correct_common.add_argument(
+        "--lang", default=config.DEFAULT_LANGUAGE,
+        help="Language for evaluation.",
+    )
+    _correct_common.add_argument(
+        "--penalty", type=float, default=0.0,
+        help="Score penalty for wrong answers (positive float; default: 0.0).",
+    )
+
+    # --- pexams sub-subparser (existing functionality) ---
+    parser_correct_pexams = correct_subparsers.add_parser(
+        "pexams",
+        parents=[common_parser, _correct_common],
+        help="Correct scanned pexams answer sheets.",
+    )
+    parser_correct_pexams.add_argument("--input-path", required=False, help="Path to the scanned PDF or folder of images.")
+    parser_correct_pexams.add_argument("--exam-dir", required=True, help="Path to the directory containing exam model JSONs.")
+    parser_correct_pexams.add_argument("--void-questions", default=None, help="Comma-separated list of question numbers to void.")
+    parser_correct_pexams.add_argument("--void-questions-nicely", default=None, help="Comma-separated list of question IDs to void nicely.")
+    parser_correct_pexams.add_argument("--input-csv", help="Path to input CSV for filling marks.")
+    parser_correct_pexams.add_argument("--id-column", help="Column name for student IDs.")
+    parser_correct_pexams.add_argument("--mark-column", help="Column name for marks.")
+    parser_correct_pexams.add_argument("--name-column", help="Column name for student names.")
+    parser_correct_pexams.add_argument("--simplify-csv", action="store_true", help="Simplify the output CSV.")
+    parser_correct_pexams.add_argument("--fuzzy-id-match", type=int, default=100, help="Fuzzy matching threshold (0-100).")
+    parser_correct_pexams.add_argument("--input-encoding", default="utf-8", help="Encoding of input CSV.")
+    parser_correct_pexams.add_argument("--input-sep", default=",", help="Separator for input CSV.")
+    parser_correct_pexams.add_argument("--output-decimal-sep", default=".", help="Decimal separator for output marks.")
+    parser_correct_pexams.add_argument("--only-analysis", action="store_true", help="Skip image processing and run analysis on existing results.")
+    parser_correct_pexams.set_defaults(func=handle_correct)
+
+    # --- wooclap sub-subparser ---
+    parser_correct_wooclap = correct_subparsers.add_parser(
+        "wooclap",
+        parents=[common_parser, _correct_common],
+        help="Ingest Wooclap quiz results (CSV/XLSX from 'Export to Excel').",
+    )
+    parser_correct_wooclap.add_argument(
+        "--results", required=True,
+        help="Path to the Wooclap results file (CSV or XLSX).",
+    )
+    parser_correct_wooclap.add_argument(
+        "--fuzzy-threshold", type=int, default=80,
+        help="Minimum similarity (0–100) for fuzzy question-text matching. Default: 80.",
+    )
+    parser_correct_wooclap.add_argument(
+        "--encoding", default="auto",
+        help="File encoding (default: auto-detect).",
+    )
+    parser_correct_wooclap.add_argument(
+        "--sep", default="auto",
+        help="CSV separator (default: auto-detect).",
+    )
+    parser_correct_wooclap.add_argument(
+        "--no-generate-report", action="store_true",
+        help="Skip PDF report generation.",
+    )
+    parser_correct_wooclap.set_defaults(func=handle_correct_wooclap)
+
+    # --- moodle sub-subparser ---
+    parser_correct_moodle = correct_subparsers.add_parser(
+        "moodle",
+        parents=[common_parser, _correct_common],
+        help="Ingest Moodle quiz results (CSV/XLSX from Results > Responses > Download).",
+    )
+    parser_correct_moodle.add_argument(
+        "--results", required=True,
+        help="Path to the Moodle results file (CSV or XLSX).",
+    )
+    parser_correct_moodle.add_argument(
+        "--question-order", default=None,
+        help=(
+            "Comma-separated 1-based question indices mapping 'Resposta 1' to question N. "
+            "Default: sequential order."
+        ),
+    )
+    parser_correct_moodle.add_argument(
+        "--encoding", default="auto",
+        help="File encoding (default: auto-detect).",
+    )
+    parser_correct_moodle.add_argument(
+        "--sep", default="auto",
+        help="CSV separator (default: auto-detect).",
+    )
+    parser_correct_moodle.add_argument(
+        "--no-generate-report", action="store_true",
+        help="Skip PDF report generation.",
+    )
+    parser_correct_moodle.set_defaults(func=handle_correct_moodle)
 
     # --- Evaluate Command ---
     parser_evaluate = subparsers.add_parser("evaluate", help="Run evaluator on questions.", parents=[common_parser])

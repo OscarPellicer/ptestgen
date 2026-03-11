@@ -29,7 +29,7 @@ METADATA_COLUMNS = [
     # Changes Rev -> Man
     "changes_rev_man_status", "changes_rev_man_lev_question", "changes_rev_man_lev_answers", "changes_rev_man_rel_lev_question", "changes_rev_man_rel_lev_answers",
     # Stats
-    "stats_total_answers", "stats_answer_distribution",
+    "stats_source", "stats_total_answers", "stats_answer_distribution",
 ]
 
 def generate_question_id(input_material_path: Optional[str] = None) -> str:
@@ -51,6 +51,15 @@ def _escape_tsv_field(text: str) -> str:
     if text is None:
         return ""
     return str(text).replace('\t', '    ').replace('\n', '\\n').replace('\r', '')
+
+
+def is_question_removed(record: QuestionRecord) -> bool:
+    """True if the question has been marked as removed/deleted (rev→man or gen→rev status)."""
+    if record.changes_rev_to_man and record.changes_rev_to_man.status == "removed":
+        return True
+    if record.changes_gen_to_rev and record.changes_gen_to_rev.status == "removed":
+        return True
+    return False
 
 def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
     """Serializes a QuestionRecord object into a dictionary for TSV writing."""
@@ -131,6 +140,8 @@ def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
         row["changes_rev_man_rel_lev_answers"] = f"{changes.rel_levenshtein_answers:.4f}"
 
     # --- Stats ---
+    if record.stats_source is not None:
+        row["stats_source"] = record.stats_source
     if record.stats_total_answers is not None:
         row["stats_total_answers"] = str(record.stats_total_answers)
     if record.stats_answer_distribution is not None:
@@ -150,12 +161,14 @@ def write_metadata_tsv(records: List[QuestionRecord], output_path: str):
         writer.writerows(rows)
 
 def write_questions_md(records: List[QuestionRecord], output_path: str):
-    """Writes the latest version of questions to a simplified Markdown file."""
-    logging.info(f"Writing {len(records)} questions to Markdown file: {output_path}")
+    """Writes the latest version of questions to a simplified Markdown file.
+    Skips questions marked as removed/deleted (see is_question_removed)."""
+    to_write = [r for r in records if not is_question_removed(r)]
+    logging.info(f"Writing {len(to_write)} questions to Markdown file: {output_path} (skipping {len(records) - len(to_write)} removed)")
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write("# Questions for Manual Review\n\n")
         
-        for record in records:
+        for record in to_write:
             content = record.get_latest_content()
             if content:
                 f.write(f"## {record.question_id}\n")
@@ -280,6 +293,8 @@ def _deserialize_record(row: Dict[str, str]) -> QuestionRecord:
             logging.warning(f"Could not parse rev->man change metrics for {record.question_id}")
     
     # --- Deserialize Stats ---
+    if row.get("stats_source"):
+        record.stats_source = row["stats_source"]
     if row.get("stats_total_answers"):
         try:
             record.stats_total_answers = int(row["stats_total_answers"])

@@ -41,6 +41,7 @@ dependencies = [
     "opencv-python>=4.7.0",
     "tqdm>=4.62.0",
     "pexams>=0.10.0",
+    "openpyxl>=3.0.0",
 ]
 
 [project.urls]

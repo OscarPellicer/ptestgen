@@ -33,9 +33,10 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   Shuffle the order of generated questions (`--shuffle-questions`).
     *   Shuffle the order of answers within each question (`--shuffle-answers`).
     *   Select a random subset of the final questions (`--num-final-questions`).
-*   **Exam Correction (OE9):**
-    *   Correct scanned PDF exams generated via `pexams` using the `autotestia correct` command.
-    *   Updates the `metadata.tsv` file with correction statistics, including total answers and answer distribution per question.
+*   **Exam Correction & Results Ingestion (OE9):**
+    *   Correct scanned PDF exams generated via `pexams` using `autotestia correct pexams`.
+    *   Ingest student answers from **Wooclap** (`autotestia correct wooclap`) or **Moodle** (`autotestia correct moodle`) quiz results (CSV or XLSX).
+    *   All three formats update `metadata.tsv` with per-question answer distributions and generate a `stats_report.pdf` via the pexams analysis pipeline.
 *   **Integrated Pipeline (OE5):** A cohesive Python script orchestrates the entire process.
 *   *(Future)* Dynamic Question Support (OE7)
 *   *(Future)* Humorous Distractor Option (OE8)
@@ -128,7 +129,7 @@ The `autotestia` command-line tool is organized into several sub-commands to man
 1.  **`generate`**: Create a new set of questions from a document or instructions. This produces a human-readable `questions.md` file for manual review and a `metadata.tsv` file that tracks all question data.
 2.  **(Manual Step)**: Edit the `questions.md` file to correct, improve, add, or delete questions.
 3.  **`export <format>`**: Read the (potentially edited) `questions.md` and its corresponding `metadata.tsv` to export the final questions into a specific format like Moodle GIFT, pexams, Wooclap, etc.
-4.  **`correct`** (Optional): If using `pexams`, correct the scanned answer sheets and update the `metadata.tsv` with question statistics.
+4.  **`correct pexams / wooclap / moodle`** (Optional): Ingest student answers — from pexams scanned sheets, a Wooclap "Export to Excel" file, or a Moodle "Responses" CSV — and update `metadata.tsv` with per-question statistics and a `stats_report.pdf`.
 
 **Other Commands:**
 
@@ -241,12 +242,17 @@ autotestia export pexams generated/exam_questions.md \
 
 ---
 
-### `autotestia correct`: Correct Scanned Exams (pexams)
+### `autotestia correct`: Correct exams and ingest results
 
-Use this command to correct scanned exams generated via `pexams` and update your question repository with statistics.
+The `correct` command has three sub-formats: `pexams` (scanned paper exams), `wooclap`, and `moodle`.  
+All three update `metadata.tsv` with per-question answer-distribution statistics and generate a `stats_report.pdf`.
+
+---
+
+#### `autotestia correct pexams`: correct scanned exams
 
 ```bash
-autotestia correct generated/topic_questions.md \
+autotestia correct pexams generated/topic_questions.md \
     --input-path path/to/scanned_images_or_pdf \
     --exam-dir path/to/generated_output_dir \
     --output-dir path/to/results_dir \
@@ -266,20 +272,106 @@ autotestia correct generated/topic_questions.md \
 - `--input-encoding <str>`: Encoding of the input CSV file (default `utf-8`). Useful if you encounter encoding errors, in which case you can try `latin1` or `utf-8-sig`.
 - `--input-sep <str>`: Separator for the input CSV file (default `,`). If your CSV uses semicolons (common in Europe), pass `--input-sep semi` or `--input-sep ";"`.
 - `--output-decimal-sep <str>`: Decimal separator for the output marks (default `.`). Use `,` if your locale requires comma decimals (e.g., `--output-decimal-sep ","`).
-- `--simplify-csv`: If set, the output CSV (`*_with_marks.csv`) will only keep the columns specified by `--id-column`, `--name-column`, and `--mark-column`. This is useful for creating a clean file for importing into a gradebook.
-- `--name-column <name>`: Column name in input file containing student names. Required if `--simplify-csv` is used.
+- `--simplify-csv`: If set, the output CSV will only keep `--id-column`, `--name-column`, and `--mark-column`.
+- `--name-column <name>`: Column name for student names. Required with `--simplify-csv`.
 
 **Scoring Arguments:**
 
-- `--penalty <float>`: Score penalty for wrong answers (e.g., `0.333333`). Default is `0.0`. Formula: `score = correct_answers - (wrong_answers * penalty)`. Note that `wrong_answers` does not include blank/unanswered questions.
+- `--penalty <float>`: Score penalty for wrong answers (e.g., `0.333333`). Default is `0.0`.
 
 **Other Arguments:**
 
-- `--void-questions <str>`: Comma-separated list of question numbers to exclude from scoring.
+- `--void-questions <str>`: Comma-separated list of question numbers to exclude.
 - `--void-questions-nicely <str>`: Comma-separated list of question IDs to void "nicely".
-- `--only-analysis`: Skip the image processing step (OCR/OMR) and proceed directly to the analysis and grading phase using an existing `correction_results.csv`. 
+- `--only-analysis`: Skip image processing and use an existing `correction_results.csv`.
 
-This command wraps `pexams correct` but adds the crucial step of **linking the results of the test correction back to your original questions**, storing total answers and answer distributions in `metadata.tsv`.
+---
+
+#### `autotestia correct wooclap`: ingest Wooclap quiz results
+
+**How to export results from Wooclap:**
+
+1. Open your Wooclap event and click **"Ver resultados"** (View results):
+
+   ![Wooclap — click "Ver resultados"](media/wooclap_download_results_1.png)
+
+2. In the results view, click **"Exportar a Excel"**:
+
+   ![Wooclap — click "Exportar a Excel"](media/wooclap_download_results_2.png)
+
+This produces an `.xlsx` file (also available as CSV via the same button's dropdown). Pass it to the command below.
+
+```bash
+autotestia correct wooclap generated/topic_questions.md \
+    --results path/to/wooclap_results.xlsx \
+    --output-dir path/to/results_dir \
+    [--fuzzy-threshold 80] \
+    [--penalty 0.0] \
+    [--no-generate-report]
+```
+
+**How it works:**  
+Column headers in the Wooclap file follow the pattern `Q1 - <question text> (N pts)`. The command matches them to your stored questions (exact match first, then fuzzy Levenshtein — a message is printed whenever fuzzy matching is used). Answer cells in the format `V - <text>` (correct) or `X - <text>` (wrong) are stripped of the prefix and matched to your stored options.
+
+**Arguments:**
+
+- `--results <path>`: Path to the Wooclap results CSV or XLSX. **Required.**
+- `--output-dir <path>`: Directory to save `correction_results.csv` and `stats_report.pdf`. **Required.**
+- `--fuzzy-threshold <0–100>`: Minimum similarity for fuzzy question matching. Default: `80`.
+- `--penalty <float>`: Score penalty for wrong answers. Default: `0.0`.
+- `--encoding <str>`: File encoding. Default: auto-detect.
+- `--no-generate-report`: Skip `stats_report.pdf` generation.
+- `--evaluate-final`: Run the LLM evaluator on questions after correction.
+
+---
+
+#### `autotestia correct moodle`: ingest Moodle quiz results
+
+**How to export results from Moodle:**
+
+1. Open your Moodle quiz, go to the **Results** tab, then choose **Responses**:
+
+   ![Moodle — Results → Responses](media/moodle_download_results.png)
+
+2. Scroll down and click **Download** (choose "Comma separated values (.csv)" or export directly as `.xlsx`).
+
+```bash
+autotestia correct moodle generated/topic_questions.md \
+    --results path/to/moodle_results.csv \
+    --output-dir path/to/results_dir \
+    [--question-order 1,2,3,...] \
+    [--penalty 0.0] \
+    [--no-generate-report]
+```
+
+**How it works:**  
+Answer columns (`Resposta 1`, `Respuesta 1`, `Response 1`, etc. — locale-flexible) are mapped **positionally** to your questions (column 1 → first question in the TSV, etc.). Each student's chosen answer text is matched to your stored options (exact first, then Levenshtein — a message is printed for fuzzy matches).
+
+**Arguments:**
+
+- `--results <path>`: Path to the Moodle results CSV or XLSX. **Required.**
+- `--output-dir <path>`: Directory to save `correction_results.csv` and `stats_report.pdf`. **Required.**
+- `--question-order <str>`: Comma-separated 1-based indices mapping answer columns to questions (e.g. `3,1,2` if Moodle reordered them). Default: sequential.
+- `--penalty <float>`: Score penalty for wrong answers. Default: `0.0`.
+- `--encoding <str>`: File encoding. Default: auto-detect.
+- `--no-generate-report`: Skip `stats_report.pdf` generation.
+- `--evaluate-final`: Run the LLM evaluator on questions after correction.
+
+---
+
+**Common behaviour for all `correct` sub-formats:**
+
+All three sub-formats write the following files to `--output-dir`:
+
+| File | Description |
+|---|---|
+| `correction_results.csv` | Per-student answer matrix |
+| `question_stats.csv` | Per-question per-option answer counts |
+| `final_marks.csv` | Student marks on a 0–10 scale |
+| `mark_distribution_0_10.png` | Score histogram |
+| `stats_report.pdf` | Full PDF report with per-question answer distribution |
+
+They also update `metadata.tsv` with `stats_total_answers` and `stats_answer_distribution` for each matched question.
 
 ---
 

@@ -129,12 +129,31 @@ class AutoTestIAPipeline:
             
             text_content = "\n\n---\n\n".join(all_text_content)
 
-        if not text_content and not image_paths:
-            logging.critical("No text could be extracted from input files and no images were provided. Cannot generate questions.")
+        if generator_instructions:
+            preview = generator_instructions.strip().replace("\n", " ")
+            if len(preview) > 200:
+                preview = preview[:200] + "..."
+            logging.info(
+                "Custom generator instructions provided (len=%s): %s",
+                len(generator_instructions),
+                preview
+            )
+        else:
+            logging.info("No custom generator instructions provided.")
+
+        # Allow "instructions-only" generation: generator can work with custom_instructions
+        if not text_content and not image_paths and not generator_instructions:
+            logging.critical(
+                "No text could be extracted from input files, no images were provided, and no generator instructions were provided. "
+                "Cannot generate questions."
+            )
             sys.exit(1)
             
         if not text_content:
-            print("\nStep 1: Parsing input material... (No text content found, proceeding with images only)")
+            if image_paths:
+                print("\nStep 1: Parsing input material... (No text content found, proceeding with images only)")
+            else:
+                print("\nStep 1: Parsing input material... (No text content found, proceeding with generator instructions only)")
         
         # 2. Generate Questions
         print("\nStep 2: Generating questions...")

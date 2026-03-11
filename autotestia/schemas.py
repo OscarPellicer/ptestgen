@@ -63,6 +63,7 @@ class QuestionRecord(BaseModel):
     changes_rev_to_man: Optional[ChangeMetrics] = None
 
     # Stats
+    stats_source: Optional[str] = None  # "pexams", "wooclap", or "moodle"
     stats_total_answers: Optional[int] = None
     stats_answer_distribution: Optional[Dict[str, int]] = None
 
