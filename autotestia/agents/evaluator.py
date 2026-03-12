@@ -47,7 +47,11 @@ class QuestionEvaluator(BaseAgent):
         """
         Evaluates a list of QuestionRecord objects at a specified stage.
         """
+        from ..artifacts import is_question_removed
         for record in tqdm(records, desc=f"Evaluating Questions ({stage.value})"):
+            
+            if is_question_removed(record):
+                continue
             
             stage_to_evaluate = None
             if stage == QuestionStage.FINAL:

@@ -80,6 +80,10 @@ def handle_correct(args):
     # --- 4. Read Stats and Update TSV ---
     stats_csv_path = os.path.join(args.output_dir, "question_stats.csv")
     records = artifacts.read_metadata_tsv(tsv_path)
+    if os.path.exists(md_path):
+        md_questions = artifacts.read_questions_md(md_path)
+        records = artifacts.synchronize_artifacts(records, md_questions)
+
     updated_count = correct_online.update_tsv_from_question_stats(
         stats_csv_path=stats_csv_path,
         records=records,
@@ -92,9 +96,6 @@ def handle_correct(args):
     # --- 5. Evaluate Final (Optional) ---
     if args.evaluate_final:
         logging.info("Running final evaluation on questions...")
-        
-        # Reload records in case they were updated
-        records = artifacts.read_metadata_tsv(tsv_path)
         
         # Filter for records that need evaluation or evaluate all?
         # The flag usually implies "ensure evaluated". 

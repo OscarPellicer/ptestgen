@@ -24,6 +24,7 @@ METADATA_COLUMNS = [
     "reviewed_eval_difficulty", "reviewed_eval_pedagogy", "reviewed_eval_clarity", "reviewed_eval_distractors", "reviewed_eval_comments", "reviewed_eval_guessed_correctly", "reviewed_eval_model",
     # Final Stage
     "final_text", "final_answers_json",
+    "final_eval_difficulty", "final_eval_pedagogy", "final_eval_clarity", "final_eval_distractors", "final_eval_comments", "final_eval_guessed_correctly", "final_eval_model",
     # Changes Gen -> Rev
     "changes_gen_rev_status", "changes_gen_rev_lev_question", "changes_gen_rev_lev_answers", "changes_gen_rev_rel_lev_question", "changes_gen_rev_rel_lev_answers",
     # Changes Rev -> Man
@@ -119,6 +120,15 @@ def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
             "explanation": content.explanation or ""
         }
         row["final_answers_json"] = json.dumps(answers, ensure_ascii=False)
+        if record.final.evaluation:
+            eval_data = record.final.evaluation
+            row["final_eval_difficulty"] = str(eval_data.difficulty_score or "")
+            row["final_eval_pedagogy"] = str(eval_data.pedagogical_value or "")
+            row["final_eval_clarity"] = str(eval_data.clarity_score or "")
+            row["final_eval_distractors"] = str(eval_data.distractor_plausibility_score or "")
+            row["final_eval_comments"] = _escape_tsv_field(eval_data.evaluation_comments)
+            row["final_eval_guessed_correctly"] = str(eval_data.evaluator_guessed_correctly or "")
+            row["final_eval_model"] = _escape_tsv_field(eval_data.evaluation_model)
         # Note: final stage doesn't have its own evaluation in this model
 
     # --- Changes Gen -> Rev ---
@@ -265,7 +275,10 @@ def _deserialize_record(row: Dict[str, str]) -> QuestionRecord:
         
     final_content = _create_content('final_text', 'final_answers_json')
     if final_content:
-        record.final = QuestionStageContent(content=final_content)
+        record.final = QuestionStageContent(
+            content=final_content,
+            evaluation=_create_evaluation("final")
+        )
 
     # --- Deserialize Change Metrics ---
     if row.get("changes_gen_rev_status"):

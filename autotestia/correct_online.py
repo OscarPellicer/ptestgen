@@ -295,6 +295,10 @@ def _load_questions_and_solutions(input_md_path: str):
         logger.error("No questions found in %s", tsv_path)
         sys.exit(1)
 
+    if os.path.exists(md_path):
+        md_questions = artifacts.read_questions_md(md_path)
+        records = artifacts.synchronize_artifacts(records, md_questions)
+
     # Exclude removed questions from parsing/report; full records kept for TSV write-back.
     records_for_report = [r for r in records if not artifacts.is_question_removed(r)]
     questions = convert_autotestia_to_pexam(records_for_report, md_path)
@@ -356,7 +360,6 @@ def _run_analysis_and_update_tsv(
     # --- Optional final LLM evaluation ---
     if evaluate_final:
         logger.info("Running final evaluation on questions…")
-        records = artifacts.read_metadata_tsv(tsv_path)
         pipeline = AutoTestIAPipeline()
         pipeline.evaluator.evaluate_records(
             records,
