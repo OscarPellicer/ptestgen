@@ -59,6 +59,46 @@ class QuestionGenerator(BaseAgent):
         
         logging.info(f"Initializing QuestionGenerator with provider: {self.llm_provider_name}, model: {model_name}")
 
+    def _build_question_record(self,
+                               item: Dict[str, Any],
+                               num_distractors: int,
+                               source_material_path: Optional[str]) -> Optional[QuestionRecord]:
+        """Normalizes a question payload from the LLM into a QuestionRecord."""
+        required_fields = ["text", "correct_answer", "distractors"]
+        if not all(field in item for field in required_fields):
+            logging.warning(f"Skipping malformed question item (missing required fields): {item}")
+            return None
+
+        distractors = item.get("distractors")
+        if not isinstance(distractors, list):
+            logging.warning(f"Skipping malformed question item (invalid distractors type): {item}")
+            return None
+
+        if len(distractors) < num_distractors:
+            logging.warning(f"Skipping malformed question item (not enough distractors): {item}")
+            return None
+
+        if len(distractors) > num_distractors:
+            logging.warning(
+                "Question item returned %s distractors, trimming to %s: %s",
+                len(distractors),
+                num_distractors,
+                item,
+            )
+            distractors = distractors[:num_distractors]
+
+        content = QuestionContent(
+            text=item["text"],
+            correct_answer=item["correct_answer"],
+            distractors=distractors,
+            explanation=item.get("explanation"),
+        )
+        return QuestionRecord(
+            question_id=artifacts.generate_question_id(source_material_path),
+            source_material=source_material_path or "custom_instructions",
+            generated=QuestionStageContent(content=content)
+        )
+
     def generate_questions_from_text(self,
                                      text_content: Optional[str],
                                      num_questions: int = config.DEFAULT_NUM_QUESTIONS,
@@ -120,21 +160,13 @@ class QuestionGenerator(BaseAgent):
                          logging.warning(f"Skipping malformed question item (not a dictionary): {item}")
                          continue
 
-                     if isinstance(item.get("distractors"), list) and len(item["distractors"]) == num_distractors:
-                         content = QuestionContent(
-                             text=item["text"],
-                             correct_answer=item["correct_answer"],
-                             distractors=item["distractors"],
-                             explanation=item.get("explanation"),
-                         )
-                         record = QuestionRecord(
-                             question_id=artifacts.generate_question_id(source_material_path),
-                             source_material=source_material_path or "custom_instructions",
-                             generated=QuestionStageContent(content=content)
-                         )
+                     record = self._build_question_record(
+                         item=item,
+                         num_distractors=num_distractors,
+                         source_material_path=source_material_path,
+                     )
+                     if record is not None:
                          records.append(record)
-                     else:
-                         logging.warning(f"Skipping malformed question item (invalid/missing distractors): {item}")
             else:
                 logging.warning(f"Failed to parse a valid question list from LLM response: {parsed_data}")
 
@@ -219,17 +251,21 @@ class QuestionGenerator(BaseAgent):
             records = []
             if parsed_data and isinstance(parsed_data.get("questions"), list):
                 for item in parsed_data["questions"]:
-                    if isinstance(item.get("distractors"), list) and len(item["distractors"]) == num_distractors:
-                        content = QuestionContent(**item)
-                        record = QuestionRecord(
-                            question_id=artifacts.generate_question_id(image_path),
-                            source_material=f"Image: {os.path.basename(image_path)}",
-                            image_reference=image_path,
-                            generated=QuestionStageContent(content=content)
-                        )
-                        records.append(record)
-                    else:
+                    if not isinstance(item, dict):
                         logging.warning(f"Skipping malformed question item for image {image_path}: {item}")
+                        continue
+
+                    record = self._build_question_record(
+                        item=item,
+                        num_distractors=num_distractors,
+                        source_material_path=f"Image: {os.path.basename(image_path)}",
+                    )
+                    if record is None:
+                        logging.warning(f"Skipping malformed question item for image {image_path}: {item}")
+                        continue
+
+                    record.image_reference = image_path
+                    records.append(record)
                 return records
             else:
                 logging.warning(f"Failed to parse a valid question list from LLM response for image {image_path}. Response content: {response_content}")

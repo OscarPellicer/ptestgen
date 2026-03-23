@@ -5,6 +5,10 @@ from .. import config
 import os
 import base64
 
+
+class ProviderResponseError(RuntimeError):
+    """Raised when an OpenAI-compatible provider returns an embedded error payload."""
+
 # Helper functions for image processing, moved from generator.py
 def encode_image_to_base64(image_path):
     try:
@@ -102,6 +106,47 @@ class OpenAICompatibleProvider(LLMProvider):
         """
         return True # Assume all models support vision
 
+    def _create_completion(self, **params: Any) -> Any:
+        """Executes a chat completion call and surfaces embedded provider errors."""
+        completion = self.client.chat.completions.create(**params)
+
+        error_payload = getattr(completion, "error", None)
+        if error_payload:
+            if isinstance(error_payload, dict):
+                error_message = error_payload.get("message", "Provider returned an error")
+                error_code = error_payload.get("code")
+            else:
+                error_message = str(error_payload)
+                error_code = None
+
+            code_suffix = f" (code: {error_code})" if error_code is not None else ""
+            raise ProviderResponseError(f"{error_message}{code_suffix}")
+
+        return completion
+
+    def _extract_message_content(self, completion: Any) -> Optional[str]:
+        """Safely extracts the first response message content from a completion."""
+        if completion is None:
+            logging.error("LLM completion is None")
+            return None
+
+        choices = getattr(completion, "choices", None)
+        if not choices:
+            logging.error(f"LLM completion returned no choices. Completion object: {completion}")
+            return None
+
+        message = getattr(choices[0], "message", None)
+        if message is None:
+            logging.error(f"LLM completion choice has no message. Completion object: {completion}")
+            return None
+
+        content = getattr(message, "content", None)
+        if content is None:
+            logging.error(f"LLM completion message has no content. Completion object: {completion}")
+            return None
+
+        return content
+
     def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int) -> Optional[str]:
         from ..schemas import LLMQuestionList
         schema = LLMQuestionList.model_json_schema()
@@ -119,23 +164,13 @@ class OpenAICompatibleProvider(LLMProvider):
             {"role": "user", "content": user_prompt}
         ]
 
-        completion = self._call_llm_with_retry(
-            self.client.chat.completions.create, **params
-        )
-        
-        if completion is None:
-            logging.error("LLM completion is None")
-            return None
-            
         try:
-            return completion.choices[0].message.content
-        except Exception as e:
-            logging.error(f"Error accessing completion content. Completion object type: {type(completion)}")
-            if hasattr(completion, 'model_dump'):
-                 logging.error(f"Completion object dump: {completion.model_dump()}")
-            else:
-                 logging.error(f"Completion object: {completion}")
-            raise e
+            completion = self._call_llm_with_retry(self._create_completion, **params)
+        except ProviderResponseError as error:
+            logging.error(f"Provider returned an error for {self.provider}: {error}")
+            return None
+
+        return self._extract_message_content(completion)
 
     def generate_question_from_image(self, system_prompt: str, user_prompt: str, image_path: str, num_distractors: int) -> Optional[str]:
         from ..schemas import LLMQuestionList
@@ -163,15 +198,13 @@ class OpenAICompatibleProvider(LLMProvider):
         ]
         params["max_tokens"] = 4096
 
-        completion = self._call_llm_with_retry(
-            self.client.chat.completions.create, **params
-        )
-
-        if not completion or not completion.choices:
-            logging.error(f"LLM completion failed or returned no choices. Completion object: {completion}")
+        try:
+            completion = self._call_llm_with_retry(self._create_completion, **params)
+        except ProviderResponseError as error:
+            logging.error(f"Provider returned an error for {self.provider}: {error}")
             return None
 
-        return completion.choices[0].message.content
+        return self._extract_message_content(completion)
 
     def review_question(self, system_prompt: str, question_json: str) -> Optional[str]:
         from ..schemas import LLMReview
@@ -181,15 +214,13 @@ class OpenAICompatibleProvider(LLMProvider):
         full_prompt = system_prompt.format(question_json=question_json)
         params["messages"] = [{"role": "system", "content": full_prompt}]
 
-        completion = self._call_llm_with_retry(
-            self.client.chat.completions.create, **params
-        )
-
-        if not completion or not completion.choices:
-            logging.error(f"LLM completion failed or returned no choices. Completion object: {completion}")
+        try:
+            completion = self._call_llm_with_retry(self._create_completion, **params)
+        except ProviderResponseError as error:
+            logging.error(f"Provider returned an error for {self.provider}: {error}")
             return None
 
-        return completion.choices[0].message.content
+        return self._extract_message_content(completion)
 
     def evaluate_question(self, system_prompt: str, question_json: str) -> Optional[str]:
         from ..schemas import LLMEvaluation
@@ -199,15 +230,13 @@ class OpenAICompatibleProvider(LLMProvider):
         full_prompt = system_prompt.format(question_json=question_json)
         params["messages"] = [{"role": "system", "content": full_prompt}]
         
-        completion = self._call_llm_with_retry(
-            self.client.chat.completions.create, **params
-        )
-
-        if not completion or not completion.choices:
-            logging.error(f"LLM completion failed or returned no choices. Completion object: {completion}")
+        try:
+            completion = self._call_llm_with_retry(self._create_completion, **params)
+        except ProviderResponseError as error:
+            logging.error(f"Provider returned an error for {self.provider}: {error}")
             return None
 
-        return completion.choices[0].message.content
+        return self._extract_message_content(completion)
     
     # We can move the full retry logic from BaseLLMAgent here later.
     # For now, inheriting the simple one from base.py
