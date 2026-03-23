@@ -240,7 +240,7 @@ def _deserialize_record(row: Dict[str, str]) -> QuestionRecord:
                 text=row[text_key],
                 correct_answer=answers.get('correct', ''),
                 distractors=answers.get('distractors', []),
-                explanation=answers.get('explanation')
+                explanation=answers.get('explanation') or None
             )
         return None
 
