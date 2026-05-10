@@ -16,6 +16,8 @@ class QuestionContent(BaseModel):
     correct_answer: str
     distractors: List[str]
     explanation: Optional[str] = None
+    # Path from the blockquote image line `> ![...](path)` in questions.md; also mirrored on QuestionRecord.image_reference for TSV export.
+    image_reference: Optional[str] = None
 
     @property
     def options(self) -> List[str]:

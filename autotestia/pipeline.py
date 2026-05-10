@@ -334,7 +334,8 @@ class AutoTestIAPipeline:
                     extra_model_templates=extra_model_templates,
                     # shuffle_questions removed, handled via utils.set_seeds
                     # seed_answers removed, handled via utils.set_seeds
-                    custom_header=custom_header
+                    custom_header=custom_header,
+                    markdown_asset_base_dir=os.path.dirname(os.path.abspath(input_md_path)),
                 )
                 print(f"Pexams outputs generated in: {os.path.abspath(output_dir)}")
 

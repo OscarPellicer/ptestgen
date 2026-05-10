@@ -275,6 +275,10 @@ def _deserialize_record(row: Dict[str, str]) -> QuestionRecord:
         
     final_content = _create_content('final_text', 'final_answers_json')
     if final_content:
+        ir = row.get("image_reference")
+        if isinstance(ir, str):
+            ir = ir.strip() or None
+        final_content = final_content.model_copy(update={"image_reference": ir})
         record.final = QuestionStageContent(
             content=final_content,
             evaluation=_create_evaluation("final")
@@ -473,8 +477,9 @@ def synchronize_artifacts(records: List[QuestionRecord], md_questions: Dict[str,
             manual_content = md_questions[record.question_id]
             latest_content = record.get_latest_content()
 
-            
             record.final = QuestionStageContent(content=manual_content)
+            # Blockquote image path from MD is stored on QuestionContent; mirror to the TSV column.
+            record.image_reference = manual_content.image_reference
 
             if manual_content != latest_content:
                 logging.info(f"Question '{record.question_id}' modified during manual review.")
@@ -501,6 +506,7 @@ def synchronize_artifacts(records: List[QuestionRecord], md_questions: Dict[str,
         new_record = QuestionRecord(
             question_id=new_id,
             source_material="manual_addition",
+            image_reference=manual_content.image_reference,
             final=QuestionStageContent(content=manual_content),
             # Mark previous stages as "non-existent" or similar
             changes_rev_to_man=ChangeMetrics(status="added")
