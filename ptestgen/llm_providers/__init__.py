@@ -1,4 +1,4 @@
-from .base import LLMProvider
+﻿from .base import LLMProvider
 from .openai_compatible import OpenAICompatibleProvider
 from .google import GoogleProvider
 from .anthropic import AnthropicProvider
@@ -47,3 +47,5 @@ def get_provider(
         raise ValueError("Stub provider should be handled by the agent, not instantiated here.")
     else:
         raise ValueError(f"Unsupported LLM provider: {provider_name}")
+
+

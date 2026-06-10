@@ -1,10 +1,10 @@
-import logging
+﻿import logging
 import os
 from typing import List, Optional
 from .schemas import QuestionRecord
-from pexams.schemas import PexamQuestion, PexamOption
+from pexams.schemas import PexamAnswerArea, PexamQuestion, PexamOption
 
-def convert_autotestia_to_pexam(
+def convert_ptestgen_to_pexam(
     records: List[QuestionRecord],
     input_md_path: str,
     max_image_width: Optional[int] = None,
@@ -21,7 +21,7 @@ def convert_autotestia_to_pexam(
     for i, record in enumerate(records):
         latest_content = record.get_latest_content()
 
-        if not latest_content.distractors:
+        if latest_content.is_multiple_choice and not latest_content.distractors:
             logging.warning(f"Skipping question '{record.question_id}' for pexams export: no distractors found.")
             continue
         
@@ -41,8 +41,27 @@ def convert_autotestia_to_pexam(
             else:
                 logging.warning(f"Image reference '{record.image_reference}' for question '{record.question_id}' not found at '{path_relative_to_cwd}' or '{path_relative_to_md}', skipping image.")
 
+        if latest_content.is_open_answer:
+            pexam_questions.append(
+                PexamQuestion(
+                    id=i + 1,
+                    original_id=record.question_id,
+                    question_type="open_answer",
+                    text=latest_content.text,
+                    points=latest_content.points,
+                    options=[],
+                    expected_answer=latest_content.expected_answer,
+                    rubric=latest_content.rubric,
+                    answer_area=PexamAnswerArea(lines=latest_content.answer_lines),
+                    image_source=image_source,
+                    max_image_width=width_str,
+                    max_image_height=height_str,
+                )
+            )
+            continue
+
         options = [
-            PexamOption(text=latest_content.correct_answer, is_correct=True)
+            PexamOption(text=latest_content.correct_answer or "", is_correct=True)
         ] + [
             PexamOption(text=distractor, is_correct=False) for distractor in latest_content.distractors
         ]
@@ -52,6 +71,7 @@ def convert_autotestia_to_pexam(
                 id=i + 1,  # Use sequential ID for pexams
                 original_id=record.question_id, # Preserve original ID
                 text=latest_content.text,
+                points=latest_content.points,
                 options=options,
                 explanation=latest_content.explanation or "",
                 image_source=image_source,
@@ -60,3 +80,5 @@ def convert_autotestia_to_pexam(
             )
         )
     return pexam_questions
+
+

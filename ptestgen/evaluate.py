@@ -1,11 +1,11 @@
-import argparse
+﻿import argparse
 import logging
 import os
 import sys
 
 from . import artifacts
 from . import config
-from .pipeline import AutoTestIAPipeline
+from .pipeline import PTestGenPipeline
 from .schemas import QuestionStage
 
 def handle_evaluate(args):
@@ -23,7 +23,7 @@ def handle_evaluate(args):
         logging.warning("No records found in metadata file.")
         return
 
-    pipeline = AutoTestIAPipeline()
+    pipeline = PTestGenPipeline()
     
     # --- 2. Check and Evaluate Each Stage ---
     
@@ -80,4 +80,6 @@ def handle_evaluate(args):
         logging.info(f"Updated evaluations for {total_evaluated} stages/records.")
     else:
         logging.info("No evaluations needed.")
+
+
 

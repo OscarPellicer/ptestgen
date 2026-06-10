@@ -1,16 +1,17 @@
-import argparse
+﻿import argparse
 import logging
 import os
 import sys
 
 from . import artifacts
 from . import config
-from .pipeline import AutoTestIAPipeline
+from .pipeline import PTestGenPipeline
 from .schemas import QuestionStage
 from . import correct_online
 
 from pexams import correct_exams
 from pexams import analysis
+from pexams import grades
 from pexams import utils
 
 def handle_correct(args):
@@ -43,6 +44,11 @@ def handle_correct(args):
         sys.exit(1)
 
     os.makedirs(args.output_dir, exist_ok=True)
+    sep = ';' if args.input_sep == 'semi' else \
+          ',' if args.input_sep == 'comma' else \
+          '\t' if args.input_sep == 'tab' else \
+          '|' if args.input_sep == 'pipe' else \
+          args.input_sep
 
     if args.only_analysis:
         logging.info("Skipping image correction (--only-analysis). Using existing results.")
@@ -52,7 +58,15 @@ def handle_correct(args):
             input_path=args.input_path,
             solutions_per_model=solutions_simple,
             output_dir=args.output_dir,
-            questions_dir=args.exam_dir
+            questions_dir=args.exam_dir,
+            roster_csv=args.input_csv,
+            roster_id_column=args.id_column,
+            roster_name_column=args.name_column,
+            roster_encoding=args.input_encoding,
+            roster_sep=sep,
+            name_match_threshold=getattr(args, "name_match_threshold", 70.0),
+            use_llm_name_ocr=getattr(args, "use_llm_name_ocr", False),
+            openrouter_name_model=getattr(args, "openrouter_name_model", "google/gemini-3-flash-preview"),
         )
     
     if not correction_success:
@@ -76,6 +90,23 @@ def handle_correct(args):
         void_questions_nicely_str=args.void_questions_nicely,
         penalty=args.penalty
     )
+
+    if args.input_csv:
+        if args.id_column and args.mark_column:
+            grades.fill_marks_in_file(
+                args.input_csv,
+                args.id_column,
+                args.mark_column,
+                results_csv,
+                args.fuzzy_id_match,
+                args.input_encoding,
+                sep,
+                args.output_decimal_sep,
+                name_col=args.name_column,
+                simplify_csv=args.simplify_csv,
+            )
+        else:
+            logging.warning("--input-csv provided but --id-column or --mark-column missing. Skipping mark filling.")
 
     # --- 4. Read Stats and Update TSV ---
     stats_csv_path = os.path.join(args.output_dir, "question_stats.csv")
@@ -102,7 +133,7 @@ def handle_correct(args):
         # But we can just run evaluate_records on all of them, the evaluator might re-evaluate.
         # Ideally we check if evaluation exists.
         
-        pipeline = AutoTestIAPipeline() # Uses default config
+        pipeline = PTestGenPipeline() # Uses default config
         pipeline.evaluator.evaluate_records(
             records,
             stage=QuestionStage.FINAL,
@@ -113,5 +144,7 @@ def handle_correct(args):
         artifacts.write_metadata_tsv(records, tsv_path)
         logging.info("Final evaluation complete and metadata updated.")
 
-    logging.info("AutoTestIA correct command finished successfully.")
+    logging.info("PTestGen correct command finished successfully.")
+
+
 

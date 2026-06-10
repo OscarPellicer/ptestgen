@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from typing import Any, Dict, Optional
 from .base import LLMProvider
 from .. import config
@@ -68,3 +68,5 @@ class AnthropicProvider(LLMProvider):
         messages = [{"role": "user", "content": full_prompt}]
         system_prompt_for_eval = "You are an AI assistant evaluating a multiple-choice question."
         return self._call_anthropic_messages_api(system_prompt_for_eval, messages)
+
+

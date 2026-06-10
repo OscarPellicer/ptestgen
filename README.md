@@ -1,10 +1,10 @@
-# AutoTestIA
+﻿# PTestGen
 
-AutoTestIA is a Python-based tool designed to assist educators in generating multiple-choice quizzes (tests) from educational materials or specific instructions using Large Language Models (LLMs). It aims to streamline the quiz creation process, saving time and potentially improving question quality.
+PTestGen is a Python-based tool designed to assist educators in generating test questions from educational materials, images, or specific instructions using Large Language Models (LLMs). It supports multiple-choice questions, open-answer questions with expected responses and rubrics, and mixed question sets.
 
 ## Project Goal
 
-To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic generation of multiple-choice questions via intelligent agents, integrated into an efficient, user-friendly Python pipeline adaptable to various educational platforms (Moodle, Wooclap, [pexams](https://github.com/OscarPellicer/pexams), R/exams).
+To develop and evaluate an AI-powered tool (PTestGen) for semi-automatic generation of test questions via intelligent agents, integrated into an efficient, user-friendly Python pipeline adaptable to various educational platforms (Moodle, Wooclap, [pexams](https://github.com/OscarPellicer/pexams), R/exams).
 
 ## Core Features
 
@@ -19,14 +19,16 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   **Document-Based Generation (OE1):** Generate questions from text documents (**TXT, MD, PDF, DOCX, PPTX, RTF supported for text extraction**) and images (PNG, JPG, GIF, BMP). PDF/DOCX/PPTX parsing requires installing optional dependencies.
     *   **Instruction-Based Generation:** Generate questions based on specific instructions provided via the command line, without requiring an input document.
 *   **Customizable Prompts:** Add custom instructions to the underlying LLM prompts for generation and review using `--generator-instructions` and `--reviewer-instructions`.
+*   **Question Type Control:** Generate multiple-choice questions, open-answer questions with expected answers and rubrics, or mixed sets using `--question-type multiple_choice|open_answer|mixed`.
 *   **Automated Review (OE2):** An LLM-based agent refines questions for clarity, correctness, and adherence to pedagogical best practices.
 *   **Automated Evaluation (OE6):** An optional, separate LLM-based agent evaluates questions against multiple criteria:
     *   **Difficulty Score:** How challenging the question is.
     *   **Pedagogical Value:** How well it tests key concepts.
     *   **Clarity:** How clear the question and options are.
     *   **Distractor Plausibility:** How convincing the incorrect answers are.
+    *   These scores are useful to flag questions that may need review, but they should be treated as weak proxies of real difficulty and never as an autonomous criterion to accept, discard, or calibrate questions.
     *   It also tracks the changes made to the questions and answers after each of the three stages: generation, automatic review, and manual review.
-    *   **Evaluate Missing:** You can now run evaluations on questions that missed it during the pipeline using the `autotestia evaluate-missing` command.
+    *   **Evaluate Missing:** You can now run evaluations on questions that missed it during the pipeline using the `ptestgen evaluate-missing` command.
 *   **Manual Review Workflow (OE3):** Outputs questions in a clean Markdown format for easy verification and editing by the educator. See [Manual review of the questions](#manual-review-of-the-questions) for more information on what formatting options are supported.
 *   **Format Conversion (OE4):** Converts the finalized questions into formats compatible with Moodle (XML/GIFT, *GIFT recommended for Moodle*), Wooclap, pexams (PDF), and R/exams.
 *   **Question Shuffling & Selection:**
@@ -34,8 +36,8 @@ To develop and evaluate an AI-powered tool (AutoTestIA) for semi-automatic gener
     *   Shuffle the order of answers within each question (`--shuffle-answers`).
     *   Select a random subset of the final questions (`--num-final-questions`).
 *   **Exam Correction & Results Ingestion (OE9):**
-    *   Correct scanned PDF exams generated via `pexams` using `autotestia correct pexams`.
-    *   Ingest student answers from **Wooclap** (`autotestia correct wooclap`) or **Moodle** (`autotestia correct moodle`) quiz results (CSV or XLSX).
+    *   Correct scanned PDF exams generated via `pexams` using `ptestgen correct pexams`.
+    *   Ingest student answers from **Wooclap** (`ptestgen correct wooclap`) or **Moodle** (`ptestgen correct moodle`) quiz results (CSV or XLSX).
     *   All three formats update `metadata.tsv` with per-question answer distributions and generate a `stats_report.pdf` via the pexams analysis pipeline.
 *   **Integrated Pipeline (OE5):** A cohesive Python script orchestrates the entire process.
 *   *(Future)* Dynamic Question Support (OE7)
@@ -47,22 +49,22 @@ The library has been tested on Python 3.11.
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/OscarPellicer/AutoTestIA.git
-    cd AutoTestIA
+    git clone https://github.com/OscarPellicer/ptestgen.git
+    cd ptestgen
     ```
 2.  (Recommended) Create and activate a virtual environment:
     
     **Option A: Using `conda` (recommended):**
     ```bash
-    conda create -n autotestia python=3.11
-    conda activate autotestia
+    conda create -n ptestgen python=3.11
+    conda activate ptestgen
     ```
     
     **Option B: Using `venv`:**
     ```bash
-    python -m venv autotestia
-    # On Windows: autotestia\Scripts\activate
-    # On macOS/Linux: source autotestia/bin/activate
+    python -m venv ptestgen
+    # On Windows: ptestgen\Scripts\activate
+    # On macOS/Linux: source ptestgen/bin/activate
     ```
 
 3.  Install required dependencies and the package in editable mode:
@@ -82,7 +84,7 @@ The library has been tested on Python 3.11.
     REPLICATE_API_TOKEN="r8_..."
     ```
     *   **IMPORTANT:** Do not commit the `.env` file to version control. The `.gitignore` file is configured to prevent this.
-5.  (Optional) You can set the default provider and models directly in the `.env` file as well (though this can also be done via arguments when running `autotestia`):
+5.  (Optional) You can set the default provider and models directly in the `.env` file as well (though this can also be done via arguments when running `ptestgen`):
     ```dotenv
     # Optional defaults in .env
     LLM_PROVIDER="openai"
@@ -91,13 +93,13 @@ The library has been tested on Python 3.11.
     ```
 6.  **(Recommended) Setup for `pexams` (Python-based PDF exams)**
 
-    `pexams` is a pure Python library for generating and correcting scannable multiple-choice exams, similar to R/exams. It is the recommended engine for PDF exam generation within AutoTestIA as it does not require installing R or LaTeX.
+    `pexams` is a pure Python library for generating and correcting scannable multiple-choice exams, similar to R/exams. It is the recommended engine for PDF exam generation within PTestGen as it does not require installing R or LaTeX.
 
     For more details, please visit the official repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
 
     1.  **Install the `pexams` library:**
 
-        `pexams` is already installed as a dependency of AutoTestIA, but you can install it manually too:
+        `pexams` is already installed as a dependency of PTestGen, but you can install it manually too:
 
         ```bash
         pip install pexams
@@ -122,49 +124,59 @@ pip install git+https://github.com/OscarPellicer/python-pptx.git
 
 ## Usage
 
-The `autotestia` command-line tool is organized into several sub-commands to manage the lifecycle of test creation.
+The `ptestgen` command-line tool is organized into several sub-commands to manage the lifecycle of test creation.
 
 **Core Workflow:**
 
 1.  **`generate`**: Create a new set of questions from a document or instructions. This produces a human-readable `questions.md` file for manual review and a `metadata.tsv` file that tracks all question data.
 2.  **(Manual Step)**: Edit the `questions.md` file to correct, improve, add, or delete questions.
 3.  **`export <format>`**: Read the (potentially edited) `questions.md` and its corresponding `metadata.tsv` to export the final questions into a specific format like Moodle GIFT, pexams, Wooclap, etc.
-4.  **`correct pexams / wooclap / moodle`** (Optional): Ingest student answers — from pexams scanned sheets, a Wooclap "Export to Excel" file, or a Moodle "Responses" CSV — and update `metadata.tsv` with per-question statistics and a `stats_report.pdf`.
+4.  **`correct pexams / wooclap / moodle`** (Optional): Ingest student answers â€” from pexams scanned sheets, a Wooclap "Export to Excel" file, or a Moodle "Responses" CSV â€” and update `metadata.tsv` with per-question statistics and a `stats_report.pdf`.
 
 **Other Commands:**
 
-*   `autotestia split`: Split a test into multiple smaller tests. This is useful for creating two exams (e.g. final and make-up) from the same set of questions. While this could also be done manually, using the command ensures that the final `.tsv` file is updated to contain the metainformation from the complete lifecycle of the questions.
-*   `autotestia merge`: Combine multiple tests into a single one. This is useful for merging questions from different topics into a single exam. Similar to `split`, using the command ensures that the final `.tsv` is updated to contain the metainformation from the complete lifecycle of the questions.
-*   `autotestia shuffle`: Shuffle questions in a markdown file.
-*   `autotestia test`: Run a full pipeline test to check for runtime errors.
-*   `autotestia evaluate-missing`: Run the evaluator on questions that are missing evaluation data for any stage (generated, reviewed, final).
+*   `ptestgen split`: Split a test into multiple smaller tests. This is useful for creating two exams (e.g. final and make-up) from the same set of questions. While this could also be done manually, using the command ensures that the final `.tsv` file is updated to contain the metainformation from the complete lifecycle of the questions.
+*   `ptestgen merge`: Combine multiple tests into a single one. This is useful for merging questions from different topics into a single exam. Similar to `split`, using the command ensures that the final `.tsv` is updated to contain the metainformation from the complete lifecycle of the questions.
+*   `ptestgen shuffle`: Shuffle questions in a markdown file.
+*   `ptestgen test`: Run a full pipeline test to check for runtime errors.
+*   `ptestgen evaluate-missing`: Run the evaluator on questions that are missing evaluation data for any stage (generated, reviewed, final).
 
 ---
 
-### `autotestia generate`: Create questions
+### `ptestgen generate`: Create questions
 
 Use this command to start the process. It generates the initial set of questions from a source document or from instructions you provide.
 
 **1. Generate from Document:**
 ```bash
-autotestia generate path/to/presentation.pptx -o generated/my-exam.md --num-questions 10
+ptestgen generate path/to/presentation.pptx -o generated/my-exam.md --num-questions 10
 ```
 *   This reads `presentation.pptx` and creates two files: `generated/my-exam.md` and `generated/my-exam.tsv`.
 
 **2. Generate from Instructions:**
 ```bash
-autotestia generate --generator-instructions "Create questions about Python regular expressions..." -o generated/regex-exam
+ptestgen generate --generator-instructions "Create questions about Python regular expressions..." -o generated/regex-exam
 ```
 *   This generates questions based on the provided instructions without needing a source file.
 
-#### Examples for `autotestia generate`
+**3. Generate open-answer questions with rubrics:**
+```bash
+ptestgen generate path/to/notes.pdf \
+    -o generated/open_questions.md \
+    --question-type open_answer \
+    --generator-instructions "Use 4-point rubrics and reserve 10 answer lines per question."
+```
+*   This generates open-answer questions with an expected answer, rubric, and answer-line count for each question.
+
+#### Examples for `ptestgen generate`
 
 **Generate questions from a PowerPoint with LLM review and evaluation:**
 ```bash
 # Make sure OPENROUTER_API_KEY is in .env
-autotestia generate path/to/presentation.pptx \
+ptestgen generate path/to/presentation.pptx \
     -o generated/topic_questions.md \
     -n 10 \
+    --question-type mixed \
     --provider openrouter \
     --generator-model google/gemini-2.5-pro \
     --reviewer-model google/gemini-2.5-flash \
@@ -192,7 +204,7 @@ After the questions have been generated, you may want to manually review them an
 ```markdown
 ## question_id
 > ![Image for question](image.png)
-¿What is the *mathematical solution* for the following **Python expression**: `sum(range(10))`?
+Â¿What is the *mathematical solution* for the following **Python expression**: `sum(range(10))`?
  * $\sum_{i=1}^{10} i = \frac{10(10+1)}{2} = 55$
  * *Wrong answer 1*
  * *Wrong answer 2*
@@ -209,13 +221,13 @@ Important notes:
 
 ---
 
-### `autotestia export <format>`: Convert questions to final formats
+### `ptestgen export <format>`: Convert questions to final formats
 
 After you have manually reviewed and saved the `questions.md` file, use this command to generate the final exam files. The export command is structured with subparsers for each format.
 
 **1. Export to Wooclap with shuffling:**
 ```bash
-autotestia export wooclap generated/topic_questions.md \
+ptestgen export wooclap generated/topic_questions.md \
     --shuffle-questions 123 \
     --shuffle-answers 123 \
     --evaluate-final
@@ -229,9 +241,9 @@ autotestia export wooclap generated/topic_questions.md \
 
 **2. Export to `pexams` PDF format:**
 ```bash
-autotestia export pexams generated/exam_questions.md \
-    --exam-title "Sistemas Informáticos - Examen Parcial" \
-    --exam-course "Máster en Ingeniería Biomédica" \
+ptestgen export pexams generated/exam_questions.md \
+    --exam-title "Sistemas InformÃ¡ticos - Examen Parcial" \
+    --exam-course "MÃ¡ster en IngenierÃ­a BiomÃ©dica" \
     --exam-date "2025-10-22" \
     --num-models 4 \
     --shuffle-answers 123 \
@@ -242,17 +254,17 @@ autotestia export pexams generated/exam_questions.md \
 
 ---
 
-### `autotestia correct`: Correct exams and ingest results
+### `ptestgen correct`: Correct exams and ingest results
 
 The `correct` command has three sub-formats: `pexams` (scanned paper exams), `wooclap`, and `moodle`.  
 All three update `metadata.tsv` with per-question answer-distribution statistics and generate a `stats_report.pdf`.
 
 ---
 
-#### `autotestia correct pexams`: correct scanned exams
+#### `ptestgen correct pexams`: correct scanned exams
 
 ```bash
-autotestia correct pexams generated/topic_questions.md \
+ptestgen correct pexams generated/topic_questions.md \
     --input-path path/to/scanned_images_or_pdf \
     --exam-dir path/to/generated_output_dir \
     --output-dir path/to/results_dir \
@@ -274,6 +286,9 @@ autotestia correct pexams generated/topic_questions.md \
 - `--output-decimal-sep <str>`: Decimal separator for the output marks (default `.`). Use `,` if your locale requires comma decimals (e.g., `--output-decimal-sep ","`).
 - `--simplify-csv`: If set, the output CSV will only keep `--id-column`, `--name-column`, and `--mark-column`.
 - `--name-column <name>`: Column name for student names. Required with `--simplify-csv`.
+- `--name-match-threshold <0-100>`: When `--input-csv` and `--name-column` are provided, match scanned papers to the roster by OCR'd student name before analysis. If any scan is unmatched, correction stops and writes `student_matches.csv` for review.
+- `--use-llm-name-ocr`: Use OpenRouter vision OCR for student names before matching. Local OCR remains the default.
+- `--openrouter-name-model <model>`: Model used by `--use-llm-name-ocr` (default `google/gemini-3-flash-preview`).
 
 **Scoring Arguments:**
 
@@ -287,22 +302,22 @@ autotestia correct pexams generated/topic_questions.md \
 
 ---
 
-#### `autotestia correct wooclap`: ingest Wooclap quiz results
+#### `ptestgen correct wooclap`: ingest Wooclap quiz results
 
 **How to export results from Wooclap:**
 
 1. Open your Wooclap event and click **"Ver resultados"** (View results):
 
-   ![Wooclap — click "Ver resultados"](media/wooclap_download_results_1.png)
+   ![Wooclap â€” click "Ver resultados"](media/wooclap_download_results_1.png)
 
 2. In the results view, click **"Exportar a Excel"**:
 
-   ![Wooclap — click "Exportar a Excel"](media/wooclap_download_results_2.png)
+   ![Wooclap â€” click "Exportar a Excel"](media/wooclap_download_results_2.png)
 
 This produces an `.xlsx` file (also available as CSV via the same button's dropdown). Pass it to the command below.
 
 ```bash
-autotestia correct wooclap generated/topic_questions.md \
+ptestgen correct wooclap generated/topic_questions.md \
     --results path/to/wooclap_results.xlsx \
     --output-dir path/to/results_dir \
     [--fuzzy-threshold 80] \
@@ -311,13 +326,13 @@ autotestia correct wooclap generated/topic_questions.md \
 ```
 
 **How it works:**  
-Column headers in the Wooclap file follow the pattern `Q1 - <question text> (N pts)`. The command matches them to your stored questions (exact match first, then fuzzy Levenshtein — a message is printed whenever fuzzy matching is used). Answer cells in the format `V - <text>` (correct) or `X - <text>` (wrong) are stripped of the prefix and matched to your stored options.
+Column headers in the Wooclap file follow the pattern `Q1 - <question text> (N pts)`. The command matches them to your stored questions (exact match first, then fuzzy Levenshtein â€” a message is printed whenever fuzzy matching is used). Answer cells in the format `V - <text>` (correct) or `X - <text>` (wrong) are stripped of the prefix and matched to your stored options.
 
 **Arguments:**
 
 - `--results <path>`: Path to the Wooclap results CSV or XLSX. **Required.**
 - `--output-dir <path>`: Directory to save `correction_results.csv` and `stats_report.pdf`. **Required.**
-- `--fuzzy-threshold <0–100>`: Minimum similarity for fuzzy question matching. Default: `80`.
+- `--fuzzy-threshold <0â€“100>`: Minimum similarity for fuzzy question matching. Default: `80`.
 - `--penalty <float>`: Score penalty for wrong answers. Default: `0.0`.
 - `--encoding <str>`: File encoding. Default: auto-detect.
 - `--no-generate-report`: Skip `stats_report.pdf` generation.
@@ -325,18 +340,18 @@ Column headers in the Wooclap file follow the pattern `Q1 - <question text> (N p
 
 ---
 
-#### `autotestia correct moodle`: ingest Moodle quiz results
+#### `ptestgen correct moodle`: ingest Moodle quiz results
 
 **How to export results from Moodle:**
 
 1. Open your Moodle quiz, go to the **Results** tab, then choose **Responses**:
 
-   ![Moodle — Results → Responses](media/moodle_download_results.png)
+   ![Moodle â€” Results â†’ Responses](media/moodle_download_results.png)
 
 2. Scroll down and click **Download** (choose "Comma separated values (.csv)" or export directly as `.xlsx`).
 
 ```bash
-autotestia correct moodle generated/topic_questions.md \
+ptestgen correct moodle generated/topic_questions.md \
     --results path/to/moodle_results.csv \
     --output-dir path/to/results_dir \
     [--question-order 1,2,3,...] \
@@ -345,7 +360,7 @@ autotestia correct moodle generated/topic_questions.md \
 ```
 
 **How it works:**  
-Answer columns (`Resposta 1`, `Respuesta 1`, `Response 1`, etc. — locale-flexible) are mapped **positionally** to your questions (column 1 → first question in the TSV, etc.). Each student's chosen answer text is matched to your stored options (exact first, then Levenshtein — a message is printed for fuzzy matches).
+Answer columns (`Resposta 1`, `Respuesta 1`, `Response 1`, etc. â€” locale-flexible) are mapped **positionally** to your questions (column 1 â†’ first question in the TSV, etc.). Each student's chosen answer text is matched to your stored options (exact first, then Levenshtein â€” a message is printed for fuzzy matches).
 
 **Arguments:**
 
@@ -367,7 +382,7 @@ All three sub-formats write the following files to `--output-dir`:
 |---|---|
 | `correction_results.csv` | Per-student answer matrix |
 | `question_stats.csv` | Per-question per-option answer counts |
-| `final_marks.csv` | Student marks on a 0–10 scale |
+| `final_marks.csv` | Student marks on a 0â€“10 scale |
 | `mark_distribution_0_10.png` | Score histogram |
 | `stats_report.pdf` | Full PDF report with per-question answer distribution |
 
@@ -377,7 +392,7 @@ They also update `metadata.tsv` with `stats_total_answers` and `stats_answer_dis
 
 ### Command Line Options
 
-#### `autotestia generate`
+#### `ptestgen generate`
 *   `input_material`: (Optional) Path(s) to the input file(s). Supports: `.txt`, `.pdf`, `.ipynb`, `.pptx`, `.md`, `.docx`, `.rtf`. Note that all input files will be processed and join together before generating questions.
 *   `-o, --output-dir`: Directory to save the generated `questions.md` and `metadata.tsv` files.
 *   `--generator-instructions`: Custom instructions for the generator prompt.
@@ -390,12 +405,13 @@ They also update `metadata.tsv` with `stats_total_answers` and `stats_answer_dis
         *   Text-based questions will only be generated if `--num-questions` is greater than the total number of image questions requested.
         *   Note that for image-based questions, the model only recieves the image (one at a time), and no extra context text (from `input_material`) is provided.
 *   `--provider`: LLM provider (`openai`, `google`, `openrouter`, etc.).
+*   `--question-type`: Question type to generate: `multiple_choice`, `open_answer`, or `mixed` (default: `multiple_choice`).
 *   `--generator-model`, `--reviewer-model`, `--evaluator-model`: Specify models for each agent.
 *   `--use-llm-review` / `--no-use-llm-review`: Enable/disable LLM-based review.
 *   `--evaluate-initial`, `--evaluate-reviewed`: Run evaluator on questions after generation/review.
 *   `--language`: Language for questions (default: `en`).
 
-#### `autotestia export <format>`
+#### `ptestgen export <format>`
 This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`, `gift`, `rexams`).
 
 *   `input_md_path`: (Positional) Path to the `questions.md` file.
@@ -421,19 +437,19 @@ This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`,
 
 For more information on the available arguments for `pexams`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
 
-#### `autotestia evaluate`
+#### `ptestgen evaluate`
 
 Run the evaluator on questions. By default, it re-evaluates all specified stages. Use `--missing-only` to evaluate only questions that lack evaluation data.
 
 ```bash
-autotestia evaluate generated/questions.md --stages generated reviewed final --language en --missing-only
+ptestgen evaluate generated/questions.md --stages generated reviewed final --language en --missing-only
 ```
 
 ---
 
-### `autotestia split`: Split a test into multiple smaller tests
+### `ptestgen split`: Split a test into multiple smaller tests
 ```bash
-autotestia split generated/all_questions.md \
+ptestgen split generated/all_questions.md \
     --splits 0.5 3 -1 \
     --output-dir generated/splits \
     --shuffle-questions 123
@@ -449,28 +465,28 @@ autotestia split generated/all_questions.md \
 
 ---
 
-### `autotestia merge`: Combine multiple tests
+### `ptestgen merge`: Combine multiple tests
 ```bash
-autotestia merge generated/splits/part_1.md generated/splits/part_2.md -o generated/part_1_all.md
+ptestgen merge generated/splits/part_1.md generated/splits/part_2.md -o generated/part_1_all.md
 ```
 *   Combines the questions from `part_1.md` and `part_2.md`.
 *   Creates a new questions file `generated/part_1_all.md` (and accompanying `.tsv`).
 
 ---
 
-### `autotestia shuffle`: Shuffle a standalone markdown file
+### `ptestgen shuffle`: Shuffle a standalone markdown file
 
 This command is a simple utility to shuffle the questions within a single `questions.md` file. It does not read or modify the `questions.tsv`, since it is not needed for this operation (the IDs do not change)
 
 ```bash
-autotestia shuffle generated/my_test/questions.md --seed 42 --yes
+ptestgen shuffle generated/my_test/questions.md --seed 42 --yes
 ```
 *   Shuffles the questions in `questions.md` and saves the result to a new file.
 *   Uses a seed for reproducible shuffling.
 *   Uses the `--yes` flag to bypass the confirmation prompt and overwrite the file directly.
 ---
 
-### `autotestia test`: Run a pipeline test
+### `ptestgen test`: Run a pipeline test
 
 Use this command to run a full, unattended test of the core library features to ensure everything is working correctly. It does not verify the correctness of the LLM outputs, but it checks that all commands run without crashing.
 
@@ -491,5 +507,7 @@ All artifacts from this command are saved in the `generated_test/` directory, wh
 **Example:**
 ```bash
 # Ensure your API keys are set in the .env file
-autotestia test --log-level INFO
+ptestgen test --log-level INFO
 ```
+
+

@@ -1,4 +1,4 @@
-import random
+﻿import random
 import logging
 import re
 
@@ -48,3 +48,5 @@ def handle_shuffle_command(args):
         print(f"Successfully shuffled {len(question_blocks)} questions in '{input_md_file}'.")
     except IOError as e:
         logging.error(f"Failed to write to file '{input_md_file}': {e}")
+
+
