@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+﻿from typing import List, Dict, Any, Optional
 from ..schemas import QuestionRecord, QuestionStage, QuestionContent, QuestionStageContent, ChangeMetrics
 from .. import artifacts
 from .. import config
@@ -84,6 +84,9 @@ class QuestionReviewer(BaseAgent):
         if not self.provider:
             logging.error(f"LLM provider not available. Skipping LLM review.")
             return None
+        if original_content.is_open_answer:
+            logging.info("Skipping LLM review for open-answer question; preserving generated expected answer and rubric.")
+            return original_content.copy(deep=True)
 
         logging.info(f"  LLM Reviewing content using {self.llm_provider_name} ({self.provider.model_name})...")
         
@@ -126,3 +129,4 @@ class QuestionReviewer(BaseAgent):
             logging.error(f"Error during LLM review call or processing: {e}", exc_info=True)
         
         return None 
+

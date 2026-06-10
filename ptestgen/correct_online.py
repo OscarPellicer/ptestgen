@@ -1,10 +1,10 @@
-"""
-Handlers for 'autotestia correct wooclap' and 'autotestia correct moodle'.
+﻿"""
+Handlers for 'ptestgen correct wooclap' and 'ptestgen correct moodle'.
 
 These wrap the pexams online_results parsers and analysis pipeline, then
-perform the extra autotestia-specific step of updating metadata.tsv with
-the per-question answer-distribution statistics — exactly mirroring the
-behaviour of autotestia/correct.py for pexams scanned exams.
+perform the extra ptestgen-specific step of updating metadata.tsv with
+the per-question answer-distribution statistics â€” exactly mirroring the
+behaviour of ptestgen/correct.py for pexams scanned exams.
 """
 
 import logging
@@ -17,8 +17,8 @@ import pandas as pd
 from Levenshtein import ratio as levenshtein_ratio
 
 from . import artifacts, config
-from .pipeline import AutoTestIAPipeline
-from .pexams_converter import convert_autotestia_to_pexam
+from .pipeline import PTestGenPipeline
+from .pexams_converter import convert_ptestgen_to_pexam
 from .schemas import QuestionRecord, QuestionStage
 
 from pexams import analysis, utils as pexams_utils
@@ -253,7 +253,7 @@ def update_tsv_from_question_stats(
 
     if updated_count == 0 and len(stats_df) > 0:
         logger.warning(
-            "No question stats could be matched to your TSV. Try re-exporting to pexams from AutoTestIA "
+            "No question stats could be matched to your TSV. Try re-exporting to pexams from PTestGen "
             "so that exam_model_*_questions.json contain original_id; then run correct again (or --only-analysis)."
         )
 
@@ -265,7 +265,7 @@ def update_tsv_from_question_stats(
 # ---------------------------------------------------------------------------
 
 def _load_questions_and_solutions(input_md_path: str):
-    """Read the autotestia TSV, convert records to PexamQuestion objects, and
+    """Read the ptestgen TSV, convert records to PexamQuestion objects, and
     build the solutions structures needed by pexams analysis.
 
     Returns ``(records, questions, solutions_full, solutions_simple, max_score)``
@@ -273,7 +273,7 @@ def _load_questions_and_solutions(input_md_path: str):
     """
     md_path, tsv_path = artifacts.get_artifact_paths(input_md_path)
 
-    # Ensure TSV exists first – it's the source of truth for questions.
+    # Ensure TSV exists first â€“ it's the source of truth for questions.
     if not os.path.exists(tsv_path):
         logger.error("Metadata TSV not found: %s", tsv_path)
         sys.exit(1)
@@ -301,7 +301,7 @@ def _load_questions_and_solutions(input_md_path: str):
 
     # Exclude removed questions from parsing/report; full records kept for TSV write-back.
     records_for_report = [r for r in records if not artifacts.is_question_removed(r)]
-    questions = convert_autotestia_to_pexam(records_for_report, md_path)
+    questions = convert_ptestgen_to_pexam(records_for_report, md_path)
     if not questions:
         logger.error("Could not convert any question records to PexamQuestion objects.")
         sys.exit(1)
@@ -325,7 +325,7 @@ def _run_analysis_and_update_tsv(
     source: str = "wooclap",
 ):
     """Run pexams analysis, read the resulting question_stats.csv, and update
-    the autotestia metadata.tsv — the same logic used in correct.py step 4-5.
+    the ptestgen metadata.tsv â€” the same logic used in correct.py step 4-5.
     """
     if generate_report:
         analysis.analyze_results(
@@ -336,7 +336,7 @@ def _run_analysis_and_update_tsv(
             penalty=penalty,
         )
     else:
-        # Run only the parts we need for stats — skip PDF/plot generation by
+        # Run only the parts we need for stats â€” skip PDF/plot generation by
         # calling analyze_results with a flag-less path; the CSV stats are
         # always produced as a side-effect of analyze_results regardless.
         analysis.analyze_results(
@@ -359,8 +359,8 @@ def _run_analysis_and_update_tsv(
 
     # --- Optional final LLM evaluation ---
     if evaluate_final:
-        logger.info("Running final evaluation on questions…")
-        pipeline = AutoTestIAPipeline()
+        logger.info("Running final evaluation on questionsâ€¦")
+        pipeline = PTestGenPipeline()
         pipeline.evaluator.evaluate_records(
             records,
             stage=QuestionStage.FINAL,
@@ -376,8 +376,8 @@ def _run_analysis_and_update_tsv(
 # ---------------------------------------------------------------------------
 
 def handle_correct_wooclap(args):
-    """Handler for 'autotestia correct wooclap'."""
-    logger.info("Running CORRECT WOOCLAP command…")
+    """Handler for 'ptestgen correct wooclap'."""
+    logger.info("Running CORRECT WOOCLAP commandâ€¦")
 
     records, questions, solutions_full, _, max_score = _load_questions_and_solutions(
         args.input_md_path
@@ -413,12 +413,12 @@ def handle_correct_wooclap(args):
         source="wooclap",
     )
 
-    logger.info("autotestia correct wooclap finished successfully.")
+    logger.info("ptestgen correct wooclap finished successfully.")
 
 
 def handle_correct_moodle(args):
-    """Handler for 'autotestia correct moodle'."""
-    logger.info("Running CORRECT MOODLE command…")
+    """Handler for 'ptestgen correct moodle'."""
+    logger.info("Running CORRECT MOODLE commandâ€¦")
 
     records, questions, solutions_full, _, max_score = _load_questions_and_solutions(
         args.input_md_path
@@ -458,4 +458,6 @@ def handle_correct_moodle(args):
         source="moodle",
     )
 
-    logger.info("autotestia correct moodle finished successfully.")
+    logger.info("ptestgen correct moodle finished successfully.")
+
+

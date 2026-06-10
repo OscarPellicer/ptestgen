@@ -1,4 +1,4 @@
-import os
+﻿import os
 import logging
 from typing import List
 from . import artifacts
@@ -51,3 +51,5 @@ def handle_merge_command(args):
     artifacts.write_artifacts(all_records, merged_md_path, merged_tsv_path)
     print(f"\nSuccessfully merged {len(all_records)} unique questions.")
     print(f"  -> Created merged file: '{merged_md_path}'")
+
+

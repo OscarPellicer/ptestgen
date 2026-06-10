@@ -1,4 +1,4 @@
-import os
+﻿import os
 import base64
 import json
 import time
@@ -62,20 +62,58 @@ class QuestionGenerator(BaseAgent):
     def _build_question_record(self,
                                item: Dict[str, Any],
                                num_distractors: int,
-                               source_material_path: Optional[str]) -> Optional[QuestionRecord]:
+                               source_material_path: Optional[str],
+                               question_type_mode: str = "multiple_choice") -> Optional[QuestionRecord]:
         """Normalizes a question payload from the LLM into a QuestionRecord."""
-        required_fields = ["text", "correct_answer", "distractors"]
-        if not all(field in item for field in required_fields):
-            logging.warning(f"Skipping malformed question item (missing required fields): {item}")
+        if "text" not in item:
+            logging.warning(f"Skipping malformed question item (missing text): {item}")
+            return None
+
+        raw_type = str(item.get("question_type") or "").strip().lower()
+        if raw_type in {"open", "open_answer", "short_answer", "essay", "free_text"}:
+            question_type = "open_answer"
+        elif raw_type in {"multiple_choice", "mc", "mcq", "choice", ""}:
+            question_type = "open_answer" if question_type_mode == "open_answer" else "multiple_choice"
+        else:
+            question_type = "multiple_choice"
+
+        if question_type_mode == "open_answer":
+            question_type = "open_answer"
+        elif question_type_mode == "multiple_choice":
+            question_type = "multiple_choice"
+
+        if question_type == "open_answer":
+            expected_answer = str(item.get("expected_answer") or item.get("correct_answer") or "").strip()
+            rubric = str(item.get("rubric") or "").strip()
+            if not expected_answer or not rubric:
+                logging.warning(f"Skipping malformed open-answer item (missing expected_answer or rubric): {item}")
+                return None
+            content = QuestionContent(
+                text=item["text"],
+                question_type="open_answer",
+                points=float(item.get("points") or 1.0),
+                expected_answer=expected_answer,
+                rubric=rubric,
+                answer_lines=int(item.get("answer_lines") or 8),
+                explanation=item.get("explanation"),
+            )
+            return QuestionRecord(
+                question_id=artifacts.generate_question_id(source_material_path),
+                source_material=source_material_path or "custom_instructions",
+                generated=QuestionStageContent(content=content)
+            )
+
+        if not item.get("correct_answer"):
+            logging.warning(f"Skipping malformed multiple-choice item (missing correct_answer): {item}")
             return None
 
         distractors = item.get("distractors")
         if not isinstance(distractors, list):
-            logging.warning(f"Skipping malformed question item (invalid distractors type): {item}")
+            logging.warning(f"Skipping malformed multiple-choice item (invalid distractors type): {item}")
             return None
 
         if len(distractors) < num_distractors:
-            logging.warning(f"Skipping malformed question item (not enough distractors): {item}")
+            logging.warning(f"Skipping malformed multiple-choice item (not enough distractors): {item}")
             return None
 
         if len(distractors) > num_distractors:
@@ -89,6 +127,8 @@ class QuestionGenerator(BaseAgent):
 
         content = QuestionContent(
             text=item["text"],
+            question_type="multiple_choice",
+            points=float(item.get("points") or 1.0),
             correct_answer=item["correct_answer"],
             distractors=distractors,
             explanation=item.get("explanation"),
@@ -105,7 +145,8 @@ class QuestionGenerator(BaseAgent):
                                      num_options: int = config.DEFAULT_NUM_OPTIONS,
                                      language: str = config.DEFAULT_LANGUAGE,
                                      custom_instructions: Optional[str] = None,
-                                     source_material_path: Optional[str] = None) -> List[QuestionRecord]:
+                                     source_material_path: Optional[str] = None,
+                                     question_type: str = "multiple_choice") -> List[QuestionRecord]:
         """
         Generates multiple-choice questions based on text or instructions.
         Returns a list of QuestionRecord objects.
@@ -115,7 +156,7 @@ class QuestionGenerator(BaseAgent):
             return []
 
         if self.llm_provider_name == "stub":
-            return self._generate_stub_records(num_questions, num_options, source_material_path)
+            return self._generate_stub_records(num_questions, num_options, source_material_path, question_type)
         
         if not self.provider:
             raise RuntimeError(f"LLM provider for '{self.llm_provider_name}' is not available. Cannot generate questions.")
@@ -131,8 +172,17 @@ class QuestionGenerator(BaseAgent):
         user_prompt_parts = []
         if text_content:
             user_prompt_parts.append(f"Context:\n{text_content}\n")
-        user_prompt_parts.append(f"Generate exactly {num_questions} multiple-choice questions {'based on the context above' if text_content else 'based on the instructions'}.")
-        user_prompt_parts.append(f"Each question should have one correct answer and {num_distractors} distractors.")
+        if question_type == "open_answer":
+            user_prompt_parts.append(f"Generate exactly {num_questions} open-answer questions {'based on the context above' if text_content else 'based on the instructions'}.")
+            user_prompt_parts.append("Each question must include expected_answer, rubric, and answer_lines.")
+        elif question_type == "mixed":
+            user_prompt_parts.append(f"Generate exactly {num_questions} questions {'based on the context above' if text_content else 'based on the instructions'}, mixing multiple-choice and open-answer questions.")
+            user_prompt_parts.append("Use roughly half multiple-choice and half open-answer questions when possible.")
+            user_prompt_parts.append(f"Each multiple-choice question should have one correct answer and {num_distractors} distractors.")
+            user_prompt_parts.append("Each open-answer question must include expected_answer, rubric, and answer_lines.")
+        else:
+            user_prompt_parts.append(f"Generate exactly {num_questions} multiple-choice questions {'based on the context above' if text_content else 'based on the instructions'}.")
+            user_prompt_parts.append(f"Each question should have one correct answer and {num_distractors} distractors.")
         user_prompt_parts.append(f"Generate the questions and the answers in the following language: {language}.")
         user_prompt = "\n".join(user_prompt_parts)
 
@@ -164,6 +214,7 @@ class QuestionGenerator(BaseAgent):
                          item=item,
                          num_distractors=num_distractors,
                          source_material_path=source_material_path,
+                         question_type_mode=question_type,
                      )
                      if record is not None:
                          records.append(record)
@@ -182,7 +233,8 @@ class QuestionGenerator(BaseAgent):
                                        num_options: int = config.DEFAULT_NUM_OPTIONS,
                                        custom_instructions: Optional[str] = None,
                                        language: str = config.DEFAULT_LANGUAGE,
-                                       num_questions_per_image: int = 1) -> List[QuestionRecord]:
+                                       num_questions_per_image: int = 1,
+                                       question_type: str = "multiple_choice") -> List[QuestionRecord]:
         """Generates a specified number of questions for each image provided."""
         all_records = []
         if not image_paths:
@@ -196,7 +248,8 @@ class QuestionGenerator(BaseAgent):
                 num_options=num_options,
                 custom_instructions=custom_instructions,
                 language=language,
-                num_questions_to_generate=num_questions_per_image
+                num_questions_to_generate=num_questions_per_image,
+                question_type=question_type,
             )
             if image_records:
                 all_records.extend(image_records)
@@ -208,10 +261,11 @@ class QuestionGenerator(BaseAgent):
                                               num_options: int,
                                               custom_instructions: Optional[str],
                                               language: str,
-                                              num_questions_to_generate: int) -> List[QuestionRecord]:
+                                              num_questions_to_generate: int,
+                                              question_type: str = "multiple_choice") -> List[QuestionRecord]:
         """Generates N questions from a single image using the configured LLM."""
         if self.llm_provider_name == "stub":
-            return self._generate_stub_records(num_questions_to_generate, num_options, f"Image: {image_path}")
+            return self._generate_stub_records(num_questions_to_generate, num_options, f"Image: {image_path}", question_type)
 
         if not self.provider:
             raise RuntimeError(f"LLM provider '{self.llm_provider_name}' is not available.")
@@ -227,8 +281,16 @@ class QuestionGenerator(BaseAgent):
             '{custom_generator_instructions}', custom_instructions or ""
         )
         
-        user_prompt_text = f"Generate exactly {num_questions_to_generate} multiple-choice questions based on the provided image."
-        user_prompt_text += f"\nEach question must have one correct answer and {num_distractors} distractors."
+        if question_type == "open_answer":
+            user_prompt_text = f"Generate exactly {num_questions_to_generate} open-answer questions based on the provided image."
+            user_prompt_text += "\nEach question must include expected_answer, rubric, and answer_lines."
+        elif question_type == "mixed":
+            user_prompt_text = f"Generate exactly {num_questions_to_generate} questions based on the provided image, mixing multiple-choice and open-answer questions when possible."
+            user_prompt_text += f"\nEach multiple-choice question must have one correct answer and {num_distractors} distractors."
+            user_prompt_text += "\nEach open-answer question must include expected_answer, rubric, and answer_lines."
+        else:
+            user_prompt_text = f"Generate exactly {num_questions_to_generate} multiple-choice questions based on the provided image."
+            user_prompt_text += f"\nEach question must have one correct answer and {num_distractors} distractors."
         user_prompt_text += f"\nGenerate the questions and answers in {language}."
         if context_text:
             user_prompt_text += f"\n\nUse this text as additional context:\n{context_text}"
@@ -259,6 +321,7 @@ class QuestionGenerator(BaseAgent):
                         item=item,
                         num_distractors=num_distractors,
                         source_material_path=f"Image: {os.path.basename(image_path)}",
+                        question_type_mode=question_type,
                     )
                     if record is None:
                         logging.warning(f"Skipping malformed question item for image {image_path}: {item}")
@@ -275,18 +338,30 @@ class QuestionGenerator(BaseAgent):
         
         return []
 
-    def _generate_stub_records(self, num_questions: int, num_options: int, source: Optional[str]) -> List[QuestionRecord]:
+    def _generate_stub_records(self, num_questions: int, num_options: int, source: Optional[str], question_type: str = "multiple_choice") -> List[QuestionRecord]:
         """Generates placeholder QuestionRecord objects for stub mode."""
         logging.info(f"STUB: Generating {num_questions} records for source: {source}")
         records = []
         num_distractors = num_options - 1
         for i in range(num_questions):
-            content = QuestionContent(
-                text=f"This is STUB question {i+1} based on {source}?",
-                correct_answer="Stub Correct Answer",
-                distractors=[f"Stub Distractor {j+1}" for j in range(num_distractors)],
-                explanation="This is a stub explanation."
-            )
+            make_open = question_type == "open_answer" or (question_type == "mixed" and i % 2 == 1)
+            if make_open:
+                content = QuestionContent(
+                    text=f"This is STUB open-answer question {i+1} based on {source}?",
+                    question_type="open_answer",
+                    expected_answer="A concise expected answer for the stub open question.",
+                    rubric="1 point for the core idea; 1 point for a clear explanation.",
+                    answer_lines=8,
+                    explanation="This is a stub explanation.",
+                )
+            else:
+                content = QuestionContent(
+                    text=f"This is STUB question {i+1} based on {source}?",
+                    question_type="multiple_choice",
+                    correct_answer="Stub Correct Answer",
+                    distractors=[f"Stub Distractor {j+1}" for j in range(num_distractors)],
+                    explanation="This is a stub explanation."
+                )
             record = QuestionRecord(
                 question_id=artifacts.generate_question_id(source),
                 source_material=source,
@@ -294,3 +369,4 @@ class QuestionGenerator(BaseAgent):
             )
             records.append(record)
         return records 
+

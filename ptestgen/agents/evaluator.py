@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+﻿from typing import List, Dict, Optional
 from ..schemas import QuestionRecord, QuestionStage, EvaluationData, QuestionContent
 from .. import config
 import logging
@@ -81,6 +81,12 @@ class QuestionEvaluator(BaseAgent):
         """
         Evaluates a single QuestionContent object.
         """
+        if not self.use_llm or not self.provider:
+            return None
+        if question_content.is_open_answer:
+            logging.info("Skipping MC-oriented evaluator for open-answer question.")
+            return None
+
         content_to_eval = question_content
 
         question_json = content_to_eval.model_dump_json(indent=2)
@@ -126,3 +132,5 @@ class QuestionEvaluator(BaseAgent):
             logging.error(f"Error during LLM evaluation: {e}", exc_info=True)
 
         return None
+
+

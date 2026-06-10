@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from typing import Any, Dict, Optional, Tuple, Type
 from .base import LLMProvider
 from .. import config
@@ -8,6 +8,27 @@ import base64
 
 class ProviderResponseError(RuntimeError):
     """Raised when an OpenAI-compatible provider returns an embedded error payload."""
+
+
+def _prepare_strict_json_schema(schema: dict) -> dict:
+    """Recursively normalizes a schema for providers that require strict JSON Schema objects."""
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" or "properties" in node:
+                properties = node.get("properties", {})
+                node.setdefault("additionalProperties", False)
+                if properties:
+                    node["required"] = list(properties.keys())
+
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    visit(schema)
+    return schema
 
 # Helper functions for image processing, moved from generator.py
 def encode_image_to_base64(image_path):
@@ -73,10 +94,11 @@ class OpenAICompatibleProvider(LLMProvider):
         logging.info(f"Initialized OpenAI client for provider '{self.provider}'")
         return client
 
-    def _construct_base_params(self, schema: dict) -> dict:
+    def _construct_base_params(self, schema: dict) -> Dict[str, Any]:
         """Constructs the base parameters for an API call, including structured output format."""
-        params = {"model": self.model_name}
+        params: Dict[str, Any] = {"model": self.model_name}
         if self.provider == "openrouter":
+             schema = _prepare_strict_json_schema(schema)
              params["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
@@ -86,6 +108,7 @@ class OpenAICompatibleProvider(LLMProvider):
                 }
             }
         elif self.provider == "ollama":
+            schema = _prepare_strict_json_schema(schema)
             params["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
@@ -240,3 +263,5 @@ class OpenAICompatibleProvider(LLMProvider):
     
     # We can move the full retry logic from BaseLLMAgent here later.
     # For now, inheriting the simple one from base.py
+
+

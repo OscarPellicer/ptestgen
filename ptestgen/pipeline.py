@@ -1,4 +1,4 @@
-import os
+﻿import os
 from typing import List, Optional
 import logging
 import sys
@@ -44,14 +44,14 @@ class LegacyQuestion:
 
 logger = logging.getLogger(__name__)
 
-class AutoTestIAPipeline:
-    """Orchestrates the AutoTestIA question generation process."""
+class PTestGenPipeline:
+    """Orchestrates the PTestGen question generation process."""
 
     def __init__(self, config_override: Optional[dict] = None):
         """
         Initializes the pipeline and its components based on config or overrides.
         """
-        print("Initializing AutoTestIA Pipeline...")
+        print("Initializing PTestGen Pipeline...")
 
         # Apply overrides if provided
         self.current_config = {
@@ -103,7 +103,8 @@ class AutoTestIAPipeline:
                  evaluator_instructions: Optional[str] = None,
                  evaluate_initial: bool = False,
                  evaluate_reviewed: bool = False,
-                 num_questions_per_image: int = 1):
+                 num_questions_per_image: int = 1,
+                 question_type: str = "multiple_choice"):
         """
         Runs the full question generation and review pipeline.
         """
@@ -148,7 +149,8 @@ class AutoTestIAPipeline:
             num_questions=num_questions,
             language=language,
             custom_instructions=generator_instructions,
-            source_material_path=", ".join(input_material_paths) if input_material_paths else None
+            source_material_path=", ".join(input_material_paths) if input_material_paths else None,
+            question_type=question_type,
         )
         
         # Add image-based questions
@@ -159,7 +161,8 @@ class AutoTestIAPipeline:
                 context_text=None, #text_content, # Provide text as context
                 custom_instructions=generator_instructions,
                 language=language,
-                num_questions_per_image=num_questions_per_image
+                num_questions_per_image=num_questions_per_image,
+                question_type=question_type,
             )
             if image_records:
                 print(f"Generated {len(image_records)} questions from images.")
@@ -282,7 +285,7 @@ class AutoTestIAPipeline:
         output_dir_for_conversions = os.path.dirname(input_md_path)
 
         # Convert to PexamQuestion objects
-        pexam_questions_base = pexams_converter.convert_autotestia_to_pexam(
+        pexam_questions_base = pexams_converter.convert_ptestgen_to_pexam(
             records=questions_for_conversion,
             input_md_path=input_md_path,
             max_image_width=max_image_width,
@@ -375,3 +378,4 @@ class AutoTestIAPipeline:
 
 
         print("\n--- Export Pipeline Finished ---") 
+

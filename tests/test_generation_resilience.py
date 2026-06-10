@@ -1,8 +1,23 @@
-import json
+﻿import json
 from types import SimpleNamespace
+from typing import Any, cast
 
-from autotestia.agents.generator import QuestionGenerator
-from autotestia.llm_providers.openai_compatible import OpenAICompatibleProvider
+from ptestgen.agents.generator import QuestionGenerator
+from ptestgen.llm_providers.openai_compatible import OpenAICompatibleProvider, _prepare_strict_json_schema
+from ptestgen.schemas import LLMQuestionList
+
+
+STRICT_LLM_QUESTION_ITEM_FIELDS = [
+    "text",
+    "question_type",
+    "points",
+    "correct_answer",
+    "distractors",
+    "explanation",
+    "expected_answer",
+    "rubric",
+    "answer_lines",
+]
 
 
 def test_generator_trims_extra_distractors():
@@ -19,9 +34,12 @@ def test_generator_trims_extra_distractors():
     }
 
     generator.llm_provider_name = "openrouter"
-    generator.provider = SimpleNamespace(
-        model_name="test-model",
-        generate_questions_from_text=lambda **kwargs: json.dumps(response_payload),
+    generator.provider = cast(
+        Any,
+        SimpleNamespace(
+            model_name="test-model",
+            generate_questions_from_text=lambda **kwargs: json.dumps(response_payload),
+        ),
     )
 
     records = generator.generate_questions_from_text(
@@ -50,9 +68,9 @@ def test_openai_compatible_provider_returns_none_for_embedded_error():
 
     attempts = []
 
-    def fake_retry(func, *args, **kwargs):
+    def fake_retry(api_call_func, *args, **kwargs):
         attempts.append(1)
-        return func(*args, **kwargs)
+        return api_call_func(*args, **kwargs)
 
     provider._call_llm_with_retry = fake_retry
 
@@ -64,3 +82,27 @@ def test_openai_compatible_provider_returns_none_for_embedded_error():
 
     assert content is None
     assert len(attempts) == 1
+
+
+def test_prepare_strict_json_schema_disallows_extra_properties_recursively():
+    schema = _prepare_strict_json_schema(LLMQuestionList.model_json_schema())
+
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["questions"]
+    assert schema["$defs"]["LLMQuestionItem"]["additionalProperties"] is False
+    assert schema["$defs"]["LLMQuestionItem"]["required"] == STRICT_LLM_QUESTION_ITEM_FIELDS
+
+
+def test_openai_compatible_provider_uses_strict_schema_for_openrouter():
+    provider = OpenAICompatibleProvider.__new__(OpenAICompatibleProvider)
+    provider.provider = "openrouter"
+    provider.model_name = "test-model"
+
+    params = provider._construct_base_params(LLMQuestionList.model_json_schema())
+
+    schema = params["response_format"]["json_schema"]["schema"]
+    assert schema["additionalProperties"] is False
+    assert schema["required"] == ["questions"]
+    assert schema["$defs"]["LLMQuestionItem"]["additionalProperties"] is False
+    assert schema["$defs"]["LLMQuestionItem"]["required"] == STRICT_LLM_QUESTION_ITEM_FIELDS
+

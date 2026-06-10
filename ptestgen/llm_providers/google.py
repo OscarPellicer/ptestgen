@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from typing import Any, Dict, Optional
 from .base import LLMProvider
 from .. import config
@@ -51,14 +51,16 @@ class GoogleProvider(LLMProvider):
         return self._generate_content(schema, [system_prompt, user_prompt])
 
     def generate_question_from_image(self, system_prompt: str, user_prompt: str, image_path: str, num_distractors: int) -> Optional[str]:
-        from ..schemas import LLMQuestionItem
+        from ..schemas import LLMQuestionList
         from .openai_compatible import encode_image_to_base64, get_image_mime_type
 
-        schema = LLMQuestionItem.model_json_schema()
+        schema = LLMQuestionList.model_json_schema()
 
-        if 'properties' in schema and 'distractors' in schema['properties']:
-            schema['properties']['distractors']['minItems'] = num_distractors
-            schema['properties']['distractors']['maxItems'] = num_distractors
+        if 'properties' in schema and 'questions' in schema['properties']:
+            question_item_schema = schema['properties']['questions']['items']
+            if 'properties' in question_item_schema and 'distractors' in question_item_schema['properties']:
+                question_item_schema['properties']['distractors']['minItems'] = num_distractors
+                question_item_schema['properties']['distractors']['maxItems'] = num_distractors
 
         base64_image = encode_image_to_base64(image_path)
         if not base64_image:
@@ -82,3 +84,4 @@ class GoogleProvider(LLMProvider):
         """Checks if the Google model is known to support vision."""
         # Models like "gemini-pro-vision" and the latest "gemini-1.5-pro" support vision.
         return "vision" in self.model_name or "1.5" in self.model_name or "gemini-pro" in self.model_name
+

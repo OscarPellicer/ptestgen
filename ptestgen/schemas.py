@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
+﻿from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
+from typing import Literal
 from enum import Enum
 
 class QuestionStage(Enum):
@@ -13,16 +14,31 @@ class QuestionStage(Enum):
 class QuestionContent(BaseModel):
     """Represents the core content of a question at any stage."""
     text: str
-    correct_answer: str
-    distractors: List[str]
+    question_type: Literal["multiple_choice", "open_answer"] = "multiple_choice"
+    points: float = 1.0
+    correct_answer: Optional[str] = None
+    distractors: List[str] = Field(default_factory=list)
     explanation: Optional[str] = None
+    expected_answer: Optional[str] = None
+    rubric: Optional[str] = None
+    answer_lines: int = 8
     # Path from the blockquote image line `> ![...](path)` in questions.md; also mirrored on QuestionRecord.image_reference for TSV export.
     image_reference: Optional[str] = None
 
     @property
     def options(self) -> List[str]:
         """Returns a combined list of correct answer and distractors."""
+        if self.question_type != "multiple_choice" or self.correct_answer is None:
+            return []
         return [self.correct_answer] + self.distractors
+
+    @property
+    def is_multiple_choice(self) -> bool:
+        return self.question_type == "multiple_choice"
+
+    @property
+    def is_open_answer(self) -> bool:
+        return self.question_type == "open_answer"
 
 class EvaluationData(BaseModel):
     """Stores the results of an evaluation pass."""
@@ -84,9 +100,14 @@ class QuestionRecord(BaseModel):
 
 class LLMQuestionItem(BaseModel):
     text: str
-    correct_answer: str
-    distractors: List[str]
+    question_type: Literal["multiple_choice", "open_answer"] = "multiple_choice"
+    points: float = 1.0
+    correct_answer: Optional[str] = None
+    distractors: List[str] = Field(default_factory=list)
     explanation: Optional[str] = None
+    expected_answer: Optional[str] = None
+    rubric: Optional[str] = None
+    answer_lines: int = 8
 
 class LLMQuestionList(BaseModel):
     questions: List[LLMQuestionItem]
@@ -106,3 +127,5 @@ class LLMEvaluation(BaseModel):
     distractor_plausibility: float = Field(..., description="Score from 0.0 (very unplausible) to 1.0 (very plausible)")
     guessed_correct_answer: int = Field(..., description="The 1-based index of the answer the model believes is correct.")
     evaluation_comment: str = Field(..., description="A brief, one-sentence comment explaining the scores.") 
+
+

@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 import os
 import logging
 import math
@@ -104,3 +104,5 @@ def handle_split_command(args):
         print(f"Warning: {total_questions - current_question_index} questions were not included in any split file.")
 
     logging.info("Splitting process complete.")
+
+

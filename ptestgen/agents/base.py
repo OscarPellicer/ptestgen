@@ -1,4 +1,4 @@
-import abc
+﻿import abc
 import json
 import logging
 from typing import Any, Optional
@@ -29,3 +29,5 @@ class BaseAgent(abc.ABC):
             agent_name = self.__class__.__name__
             logging.error(f"{agent_name}: Could not decode JSON: {e}. Content: '{response_content[:150]}...'")
             return None
+
+

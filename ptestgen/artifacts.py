@@ -1,4 +1,4 @@
-import os
+﻿import os
 import csv
 import json
 import logging
@@ -54,8 +54,21 @@ def _escape_tsv_field(text: str) -> str:
     return str(text).replace('\t', '    ').replace('\n', '\\n').replace('\r', '')
 
 
+def _answers_payload(content: QuestionContent) -> Dict:
+    return {
+        "question_type": content.question_type,
+        "points": content.points,
+        "correct": content.correct_answer or "",
+        "distractors": content.distractors,
+        "explanation": content.explanation or "",
+        "expected_answer": content.expected_answer or "",
+        "rubric": content.rubric or "",
+        "answer_lines": content.answer_lines,
+    }
+
+
 def is_question_removed(record: QuestionRecord) -> bool:
-    """True if the question has been marked as removed/deleted (rev→man or gen→rev status)."""
+    """True if the question has been marked as removed/deleted (revâ†’man or genâ†’rev status)."""
     if record.changes_rev_to_man and record.changes_rev_to_man.status == "removed":
         return True
     if record.changes_gen_to_rev and record.changes_gen_to_rev.status == "removed":
@@ -74,11 +87,7 @@ def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
     if record.generated:
         content = record.generated.content
         row["generated_text"] = _escape_tsv_field(content.text)
-        answers = {
-            "correct": content.correct_answer,
-            "distractors": content.distractors,
-            "explanation": content.explanation or ""
-        }
+        answers = _answers_payload(content)
         row["generated_answers_json"] = json.dumps(answers, ensure_ascii=False)
         if record.generated.evaluation:
             eval_data = record.generated.evaluation
@@ -94,11 +103,7 @@ def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
     if record.reviewed:
         content = record.reviewed.content
         row["reviewed_text"] = _escape_tsv_field(content.text)
-        answers = {
-            "correct": content.correct_answer,
-            "distractors": content.distractors,
-            "explanation": content.explanation or ""
-        }
+        answers = _answers_payload(content)
         row["reviewed_answers_json"] = json.dumps(answers, ensure_ascii=False)
         if record.reviewed.evaluation:
             eval_data = record.reviewed.evaluation
@@ -114,11 +119,7 @@ def _serialize_record(record: QuestionRecord) -> Dict[str, str]:
     if record.final:
         content = record.final.content
         row["final_text"] = _escape_tsv_field(content.text)
-        answers = {
-            "correct": content.correct_answer,
-            "distractors": content.distractors,
-            "explanation": content.explanation or ""
-        }
+        answers = _answers_payload(content)
         row["final_answers_json"] = json.dumps(answers, ensure_ascii=False)
         if record.final.evaluation:
             eval_data = record.final.evaluation
@@ -181,7 +182,15 @@ def write_questions_md(records: List[QuestionRecord], output_path: str):
         for record in to_write:
             content = record.get_latest_content()
             if content:
-                f.write(f"## {record.question_id}\n")
+                attrs = []
+                if content.question_type != "multiple_choice":
+                    attrs.append(f"type={content.question_type}")
+                if content.points != 1.0:
+                    attrs.append(f"points={content.points:g}")
+                if content.is_open_answer:
+                    attrs.append(f"lines={content.answer_lines}")
+                attr_text = f" {{{' '.join(attrs)}}}" if attrs else ""
+                f.write(f"## {record.question_id}{attr_text}\n")
                 
                 # Add image reference if it exists
                 if record.image_reference:
@@ -193,13 +202,19 @@ def write_questions_md(records: List[QuestionRecord], output_path: str):
                     f.write(f"> ![Image for question]({relative_path})\n\n")
 
                 f.write(f"{content.text}\n\n")
-                
-                f.write(f"* {content.correct_answer}\n")
-                for distractor in content.distractors:
-                    f.write(f"* {distractor}\n")
-                
-                if content.explanation:
-                    f.write(f"\n**Explanation:**\n{content.explanation}\n")
+
+                if content.is_open_answer:
+                    if content.expected_answer:
+                        f.write(f"**Expected answer:**\n{content.expected_answer}\n")
+                    if content.rubric:
+                        f.write(f"\n**Rubric:**\n{content.rubric}\n")
+                else:
+                    f.write(f"* {content.correct_answer}\n")
+                    for distractor in content.distractors:
+                        f.write(f"* {distractor}\n")
+
+                    if content.explanation:
+                        f.write(f"\n**Explanation:**\n{content.explanation}\n")
                 
                 f.write("\n\n") # Use two newlines as a separator
 
@@ -238,9 +253,14 @@ def _deserialize_record(row: Dict[str, str]) -> QuestionRecord:
             answers = _parse_answers(row.get(answers_key, '{}'))
             return QuestionContent(
                 text=row[text_key],
-                correct_answer=answers.get('correct', ''),
+                question_type=answers.get('question_type', 'multiple_choice'),
+                points=float(answers.get('points') or 1.0),
+                correct_answer=answers.get('correct') or None,
                 distractors=answers.get('distractors', []),
-                explanation=answers.get('explanation') or None
+                explanation=answers.get('explanation') or None,
+                expected_answer=answers.get('expected_answer') or None,
+                rubric=answers.get('rubric') or None,
+                answer_lines=int(answers.get('answer_lines') or 8),
             )
         return None
 
@@ -339,6 +359,52 @@ def read_metadata_tsv(path: str) -> List[QuestionRecord]:
             records.append(_deserialize_record(row))
     return records
 
+
+def _parse_question_header(header_line: str) -> tuple[str, Dict[str, str]]:
+    match = re.match(r'^##\s+(.+)', header_line)
+    if not match:
+        return "", {}
+    raw_header = match.group(1).strip()
+    attrs: Dict[str, str] = {}
+    attr_match = re.search(r'\{([^}]*)\}\s*$', raw_header)
+    if attr_match:
+        raw_header = raw_header[:attr_match.start()].strip()
+        for token in attr_match.group(1).split():
+            if "=" in token:
+                key, value = token.split("=", 1)
+                attrs[key.strip().lower()] = value.strip().strip('"\'')
+    return raw_header, attrs
+
+
+def _normalize_question_type(raw_type: Optional[str]) -> str:
+    if not raw_type:
+        return "multiple_choice"
+    normalized = raw_type.strip().lower().replace("-", "_")
+    if normalized in {"open", "open_answer", "short_answer", "essay", "free_text"}:
+        return "open_answer"
+    return "multiple_choice"
+
+
+def _split_open_answer_sections(lines: List[str]) -> tuple[str, Optional[str], Optional[str]]:
+    sections = {"question": [], "expected_answer": [], "rubric": []}
+    current = "question"
+    markers = {
+        "**expected answer:**": "expected_answer",
+        "**expected_answer:**": "expected_answer",
+        "**rubric:**": "rubric",
+    }
+    for line in lines:
+        marker = line.strip().lower()
+        if marker in markers:
+            current = markers[marker]
+            continue
+        sections[current].append(line)
+    return (
+        "\n".join(sections["question"]).strip(),
+        "\n".join(sections["expected_answer"]).strip() or None,
+        "\n".join(sections["rubric"]).strip() or None,
+    )
+
 def read_questions_md(path: str) -> Dict[str, QuestionContent]:
     """Parses a simplified Markdown file into a dictionary of QuestionContent objects."""
     if not os.path.exists(path):
@@ -363,12 +429,10 @@ def read_questions_md(path: str) -> Dict[str, QuestionContent]:
 
         lines = block.split('\n')
         
-        # Parse ID from header: "## question_id"
         header_line = lines[0]
-        match = re.match(r'^##\s+(.+)', header_line)
-        if not match:
+        question_id, attrs = _parse_question_header(header_line)
+        if not question_id:
             continue
-        question_id = match.group(1).strip()
         
         content_lines = lines[1:]
         
@@ -380,6 +444,32 @@ def read_questions_md(path: str) -> Dict[str, QuestionContent]:
                 image_path = img_match.group(1).strip()
                 # Remove the image line from the content
                 content_lines = content_lines[1:]
+
+        question_type = _normalize_question_type(attrs.get("type"))
+        try:
+            points = float(attrs.get("points", 1.0))
+        except ValueError:
+            points = 1.0
+        try:
+            answer_lines = int(attrs.get("lines", 8))
+        except ValueError:
+            answer_lines = 8
+
+        if question_type == "open_answer":
+            question_text, expected_answer, rubric = _split_open_answer_sections(content_lines)
+            if not question_text:
+                logging.warning(f"Open-answer question ID '{question_id}' has no question text. Skipping.")
+                continue
+            questions[question_id] = QuestionContent(
+                text=question_text,
+                question_type="open_answer",
+                points=points,
+                expected_answer=expected_answer,
+                rubric=rubric,
+                answer_lines=answer_lines,
+                image_reference=image_path,
+            )
+            continue
 
         first_answer_idx = -1
         for i, line in enumerate(content_lines):
@@ -419,6 +509,8 @@ def read_questions_md(path: str) -> Dict[str, QuestionContent]:
 
         questions[question_id] = QuestionContent(
             text=question_text,
+            question_type="multiple_choice",
+            points=points,
             correct_answer=answers[0],
             distractors=answers[1:],
             explanation="\n".join(explanation_lines).strip() or None,
@@ -434,8 +526,8 @@ def calculate_changes(old_stage: QuestionStageContent, new_stage: QuestionStageC
     
     q_dist = distance(old_content.text, new_content.text)
     
-    old_answers_str = " ".join([old_content.correct_answer] + old_content.distractors)
-    new_answers_str = " ".join([new_content.correct_answer] + new_content.distractors)
+    old_answers_str = " ".join(old_content.options) if old_content.is_multiple_choice else " ".join([old_content.expected_answer or "", old_content.rubric or ""])
+    new_answers_str = " ".join(new_content.options) if new_content.is_multiple_choice else " ".join([new_content.expected_answer or "", new_content.rubric or ""])
     a_dist = distance(old_answers_str, new_answers_str)
     
     status = "modified" if q_dist > 0 or a_dist > 0 else "unchanged"
@@ -468,6 +560,9 @@ def synchronize_artifacts(records: List[QuestionRecord], md_questions: Dict[str,
             # Question was deleted
             logging.info(f"Question '{record.question_id}' removed during manual review.")
             if record.reviewed:
+                record.changes_rev_to_man = ChangeMetrics(status="removed")
+            elif record.final:
+                # Manual additions can exist only in the final stage.
                 record.changes_rev_to_man = ChangeMetrics(status="removed")
             elif record.generated: # Should have at least a generated stage
                  record.changes_gen_to_rev = ChangeMetrics(status="removed") # Or a new change status?
@@ -515,3 +610,5 @@ def synchronize_artifacts(records: List[QuestionRecord], md_questions: Dict[str,
         
     logging.info(f"Synchronization complete. Final record count: {len(final_records)}")
     return final_records
+
+

@@ -1,10 +1,18 @@
-# Configuration settings for AutoTestIA
+﻿# Configuration settings for PTestGen
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+def load_project_dotenv():
+    """Load .env from the ai4exams repo root and its parent, regardless of cwd."""
+    repo_root = Path(__file__).resolve().parents[2]
+    for folder in (repo_root, repo_root.parent):
+        load_dotenv(folder / ".env")
+
+
+# Load environment variables from project .env files.
+load_project_dotenv()
 
 # --- LLM Configuration ---
 # Select the provider: "openai", "google", "anthropic", "replicate", "stub"
@@ -35,10 +43,10 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 # Check provider documentation for the latest/most appropriate model names.
 GENERATOR_MODEL_MAP = {
     "openai": os.getenv("OPENAI_GENERATOR_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_GENERATOR_MODEL", "gemini-3-pro-preview"),
+    "google": os.getenv("GOOGLE_GENERATOR_MODEL", "gemini-3.1-pro-preview"),
     "anthropic": os.getenv("ANTHROPIC_GENERATOR_MODEL", "claude-sonnet-4-5"),
     "replicate": os.getenv("REPLICATE_GENERATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
-    "openrouter": os.getenv("OPENROUTER_GENERATOR_MODEL", "google/gemini-3-pro-preview"),
+    "openrouter": os.getenv("OPENROUTER_GENERATOR_MODEL", "google/gemini-3.1-pro-preview"),
     "ollama": os.getenv("OLLAMA_GENERATOR_MODEL", "gemma3:4b"),
     "stub": "stub-generator-model"
 }
@@ -96,28 +104,34 @@ DEFAULT_LANGUAGE = "Spanish"
 
 # --- Prompting ---
 GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant specialized in creating multiple-choice questions of high quality and difficulty for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$; don't use $$). DO NOT use newlines in the question text, answers or distractors. For each question, provide:
+You are an AI assistant specialized in creating high-quality test questions for university students, given the provided context or instructions. Base the questions strictly on the provided context if available. Try to generate at least one question for each topic that is covered in the context. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$; don't use $$). DO NOT use newlines in the question text, answers, distractors, expected answer, or rubric.
+
+For multiple-choice questions, set "question_type" to "multiple_choice" and provide:
 - The question text.
 - The correct answer.
 - A list of distractors.
 
+For open-answer questions, set "question_type" to "open_answer" and provide:
+- The question text.
+- "expected_answer": a concise model answer.
+- "rubric": a concise scoring rubric with point allocation.
+- "answer_lines": the number of answer lines to reserve, usually 6-12.
+
 {custom_generator_instructions}
 
-Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
+Output the questions as a JSON object with key "questions" (list of objects). OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
 """
 
 IMAGE_GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant specialized in creating educational multiple-choice questions based on images.
-Given the provided image and optional context text, generate multiple-choice questions that require understanding the image content. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$; don't use $$).
-DO NOT use newlines in the question text, answers or distractors.
-For each question, provide:
-- The question text.
-- The correct answer.
-- A list of distractors.
+You are an AI assistant specialized in creating educational test questions based on images.
+Given the provided image and optional context text, generate test questions that require understanding the image content. You can use a variety of markdown formatting options (don't use any formatting option that is not listed here): *italic text*, **bold text**, `code`, $LaTeX_expression$ (such as $\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}$; don't use $$).
+DO NOT use newlines in the question text, answers, distractors, expected answer, or rubric.
+For multiple-choice questions, set "question_type" to "multiple_choice" and provide the question text, correct answer, and distractors.
+For open-answer questions, set "question_type" to "open_answer" and provide the question text, expected_answer, rubric, and answer_lines.
 
 {custom_generator_instructions}
 
-Output the questions as a JSON object with keys: "questions" (list of objects), where each object has keys: "text" (string), "correct_answer" (string), "distractors" (list of strings). Focus the questions on interpreting the visual information in the image, potentially using the context text for background. OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
+Output the questions as a JSON object with key "questions" (list of objects). Focus the questions on interpreting the visual information in the image, potentially using the context text for background. OUTPUT ONLY THE JSON OBJECT, NOTHING ELSE.
 """
 
 REVIEW_SYSTEM_PROMPT = """
@@ -183,3 +197,5 @@ STRUCTURED_OUTPUT_SUPPORTED_MODELS = {
     "anthropic": [], # Not implemented with native JSON mode
     "replicate": [], # Not implemented with native JSON mode
 } 
+
+

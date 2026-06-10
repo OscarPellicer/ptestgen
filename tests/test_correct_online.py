@@ -1,5 +1,5 @@
-"""
-Tests for autotestia.correct_online — the wrappers around pexams online parsers.
+﻿"""
+Tests for ptestgen.correct_online â€” the wrappers around pexams online parsers.
 
 These tests use synthetic TSV / results data and mock out pexams.analysis so
 that no LLM calls or PDF generation are triggered.
@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from autotestia import artifacts
-from autotestia.schemas import (
+from ptestgen import artifacts
+from ptestgen.schemas import (
     QuestionContent,
     QuestionRecord,
     QuestionStageContent,
@@ -144,37 +144,37 @@ class TestHandleCorrectWooclap(unittest.TestCase):
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
 
-    @patch("autotestia.correct_online.analysis")
+    @patch("ptestgen.correct_online.analysis")
     def test_correction_results_csv_created(self, mock_analysis):
         """correction_results.csv must be written to output_dir."""
         mock_analysis.analyze_results.return_value = None
         # Provide a synthetic question_stats.csv so the TSV update runs
         _make_question_stats_csv(self.output_dir, self.records)
 
-        from autotestia.correct_online import handle_correct_wooclap
+        from ptestgen.correct_online import handle_correct_wooclap
         handle_correct_wooclap(self._make_args())
 
         correction_csv = os.path.join(self.output_dir, "correction_results.csv")
         self.assertTrue(os.path.exists(correction_csv), "correction_results.csv not found")
 
-    @patch("autotestia.correct_online.analysis")
+    @patch("ptestgen.correct_online.analysis")
     def test_correction_results_has_two_students(self, mock_analysis):
         mock_analysis.analyze_results.return_value = None
         _make_question_stats_csv(self.output_dir, self.records)
 
-        from autotestia.correct_online import handle_correct_wooclap
+        from ptestgen.correct_online import handle_correct_wooclap
         handle_correct_wooclap(self._make_args())
 
         df = pd.read_csv(os.path.join(self.output_dir, "correction_results.csv"))
         self.assertEqual(len(df), 2)
 
-    @patch("autotestia.correct_online.analysis")
+    @patch("ptestgen.correct_online.analysis")
     def test_tsv_stats_updated(self, mock_analysis):
         """metadata.tsv stats_total_answers must be updated after correction."""
         mock_analysis.analyze_results.return_value = None
         _make_question_stats_csv(self.output_dir, self.records)
 
-        from autotestia.correct_online import handle_correct_wooclap
+        from ptestgen.correct_online import handle_correct_wooclap
         handle_correct_wooclap(self._make_args())
 
         updated = artifacts.read_metadata_tsv(self.tsv_path)
@@ -185,26 +185,26 @@ class TestHandleCorrectWooclap(unittest.TestCase):
                 f"stats_total_answers not set for {rec.question_id}",
             )
 
-    @patch("autotestia.correct_online.analysis")
+    @patch("ptestgen.correct_online.analysis")
     def test_stats_source_is_wooclap(self, mock_analysis):
         """stats_source must be set to 'wooclap' after Wooclap correction."""
         mock_analysis.analyze_results.return_value = None
         _make_question_stats_csv(self.output_dir, self.records)
 
-        from autotestia.correct_online import handle_correct_wooclap
+        from ptestgen.correct_online import handle_correct_wooclap
         handle_correct_wooclap(self._make_args())
 
         updated = artifacts.read_metadata_tsv(self.tsv_path)
         for rec in updated:
             self.assertEqual(rec.stats_source, "wooclap")
 
-    @patch("autotestia.correct_online.analysis")
+    @patch("ptestgen.correct_online.analysis")
     def test_analyze_results_called(self, mock_analysis):
         """pexams analysis.analyze_results must be invoked once."""
         mock_analysis.analyze_results.return_value = None
         _make_question_stats_csv(self.output_dir, self.records)
 
-        from autotestia.correct_online import handle_correct_wooclap
+        from ptestgen.correct_online import handle_correct_wooclap
         handle_correct_wooclap(self._make_args())
 
         mock_analysis.analyze_results.assert_called_once()
@@ -240,51 +240,51 @@ class TestHandleCorrectMoodle(unittest.TestCase):
         defaults.update(kwargs)
         return argparse.Namespace(**defaults)
 
-    @patch("autotestia.correct_online.analysis")
+    @patch("ptestgen.correct_online.analysis")
     def test_correction_results_csv_created(self, mock_analysis):
         mock_analysis.analyze_results.return_value = None
         _make_question_stats_csv(self.output_dir, self.records)
 
-        from autotestia.correct_online import handle_correct_moodle
+        from ptestgen.correct_online import handle_correct_moodle
         handle_correct_moodle(self._make_args())
 
         correction_csv = os.path.join(self.output_dir, "correction_results.csv")
         self.assertTrue(os.path.exists(correction_csv))
 
-    @patch("autotestia.correct_online.analysis")
+    @patch("ptestgen.correct_online.analysis")
     def test_correct_answers_mapped(self, mock_analysis):
         """Student 1 answered correctly: answer_1 = 'B' (index 1 = '4')."""
         mock_analysis.analyze_results.return_value = None
         _make_question_stats_csv(self.output_dir, self.records)
 
-        from autotestia.correct_online import handle_correct_moodle
+        from ptestgen.correct_online import handle_correct_moodle
         handle_correct_moodle(self._make_args())
 
         df = pd.read_csv(os.path.join(self.output_dir, "correction_results.csv"))
         # The correct answer for Q1 is "4" which is option index 1 (after
-        # pexams_converter places correct_answer first → index 0).
+        # pexams_converter places correct_answer first â†’ index 0).
         # Verify Q1 student 1 is not NA
         self.assertNotEqual(df.loc[0, "answer_1"], "NA")
 
-    @patch("autotestia.correct_online.analysis")
+    @patch("ptestgen.correct_online.analysis")
     def test_tsv_stats_updated(self, mock_analysis):
         mock_analysis.analyze_results.return_value = None
         _make_question_stats_csv(self.output_dir, self.records)
 
-        from autotestia.correct_online import handle_correct_moodle
+        from ptestgen.correct_online import handle_correct_moodle
         handle_correct_moodle(self._make_args())
 
         updated = artifacts.read_metadata_tsv(self.tsv_path)
         for rec in updated:
             self.assertIsNotNone(rec.stats_total_answers)
 
-    @patch("autotestia.correct_online.analysis")
+    @patch("ptestgen.correct_online.analysis")
     def test_stats_source_is_moodle(self, mock_analysis):
         """stats_source must be set to 'moodle' after Moodle correction."""
         mock_analysis.analyze_results.return_value = None
         _make_question_stats_csv(self.output_dir, self.records)
 
-        from autotestia.correct_online import handle_correct_moodle
+        from ptestgen.correct_online import handle_correct_moodle
         handle_correct_moodle(self._make_args())
 
         updated = artifacts.read_metadata_tsv(self.tsv_path)
@@ -360,3 +360,5 @@ class TestCorrectionResultsFormat(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

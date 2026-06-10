@@ -1,6 +1,7 @@
-import argparse
+﻿import argparse
 import os
 import sys
+from pathlib import Path
 from dotenv import load_dotenv
 import logging
 import random
@@ -8,20 +9,27 @@ import shutil
 
 import pandas as pd
 
-# Load .env file BEFORE importing config or pipeline
-# This ensures environment variables are set when config is loaded
-load_dotenv()
+def load_project_dotenv():
+    """Load .env from the ai4exams repo root and its parent, regardless of cwd."""
+    repo_root = Path(__file__).resolve().parents[1]
+    for folder in (repo_root, repo_root.parent):
+        load_dotenv(folder / ".env")
+
+
+# Load .env file BEFORE importing config or pipeline.
+# This ensures environment variables are set when config is loaded.
+load_project_dotenv()
 
 # Now import local modules
-from autotestia.pipeline import AutoTestIAPipeline
-from autotestia import config # Import config AFTER dotenv load
-from autotestia import artifacts # Import artifacts module
-from autotestia.split import handle_split_command
-from autotestia.merge import handle_merge_command
-from autotestia.shuffle import handle_shuffle_command
-from autotestia.correct import handle_correct
-from autotestia.correct_online import handle_correct_wooclap, handle_correct_moodle
-from autotestia.evaluate import handle_evaluate
+from ptestgen.pipeline import PTestGenPipeline
+from ptestgen import config # Import config AFTER dotenv load
+from ptestgen import artifacts # Import artifacts module
+from ptestgen.split import handle_split_command
+from ptestgen.merge import handle_merge_command
+from ptestgen.shuffle import handle_shuffle_command
+from ptestgen.correct import handle_correct
+from ptestgen.correct_online import handle_correct_wooclap, handle_correct_moodle
+from ptestgen.evaluate import handle_evaluate
 
 
 def setup_logging(log_level):
@@ -44,7 +52,7 @@ def handle_test(args):
         image_path = os.path.join(script_dir, "media", "image.jpg")
         test_questions = 2
 
-        instructions = "This is a TEST RUN for the AutoTestIA library, a library that allows you to generate multiple-choice questions from text or images using LLms. Generate questions about Python programming. MAKE SURE to include at least one instance of all the formatting options in the questions and answers: **bold text**, *italic text*, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$)."
+        instructions = r"This is a TEST RUN for the PTestGen library, a library that allows you to generate test questions from text or images using LLMs. Generate questions about Python programming. MAKE SURE to include at least one instance of all the formatting options in the questions and answers: **bold text**, *italic text*, `code`, $LaTeX_expression$ (such as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$)."
 
         # --- 1. Generation ---
         print("\n--- Step 1: Generating questions (OpenRouter) ---")
@@ -58,7 +66,8 @@ def handle_test(args):
             evaluator_model="google/gemini-3-flash-preview",
             use_llm_review=True, language="es",
             evaluate_initial=True, evaluate_reviewed=True,
-            num_questions_per_image=1
+            num_questions_per_image=1,
+            question_type="multiple_choice",
         )
         handle_generate(args_gen_or)
 
@@ -153,7 +162,7 @@ def handle_test(args):
         common_export_args = {
             'input_md_path': merged_md_path,
             'shuffle_questions': None, 'shuffle_answers': None, 'num_final_questions': None,
-            'evaluate_final': True, 'evaluator_instructions': None, 'exam_title': 'Test Exam', 'exam_course': 'AutoTestIA Course',
+            'evaluate_final': True, 'evaluator_instructions': None, 'exam_title': 'Test Exam', 'exam_course': 'PTestGen Course',
             'exam_date': '2025-01-01', 'num_models': 1, 'lang': 'en',
             'font_size': '11pt', 'columns': 2,
             # 'max_image_width': 400, # If two columns, do not use max width
@@ -188,7 +197,7 @@ def handle_test(args):
         handle_export(args_export_pexams)
 
         # --- 7. Correct (New) ---
-        print("\n--- Step 7: Correcting pexams scans via autotestia correct ---")
+        print("\n--- Step 7: Correcting pexams scans via ptestgen correct ---")
         base_name = os.path.splitext(os.path.basename(merged_md_path))[0]
         pexams_output_dir = os.path.join(output_dir, f"{base_name}_pexams_output")
         simulated_scans_dir = os.path.join(pexams_output_dir, "simulated_scans")
@@ -205,6 +214,7 @@ def handle_test(args):
             void_questions=None, void_questions_nicely=None,
             input_csv=None, id_column=None, mark_column=None, name_column=None, simplify_csv=False,
             fuzzy_id_match=100, penalty=0.0, input_encoding="utf-8", input_sep=",", output_decimal_sep=".",
+            name_match_threshold=70.0, use_llm_name_ocr=False, openrouter_name_model="google/gemini-3-flash-preview",
             only_analysis=False
         )
         handle_correct(args_correct)
@@ -231,7 +241,7 @@ def handle_test(args):
         
         # --- 9. Test online correction (wooclap & moodle) ---
         print("\n--- Step 9: Testing online correction (wooclap & moodle) ---")
-        from autotestia.schemas import QuestionContent, QuestionRecord, QuestionStageContent
+        from ptestgen.schemas import QuestionContent, QuestionRecord, QuestionStageContent
 
         online_test_dir = os.path.join(output_dir, "online_correction_test")
         os.makedirs(online_test_dir, exist_ok=True)
@@ -270,7 +280,7 @@ def handle_test(args):
             raise RuntimeError("Wooclap: correction_results.csv was not created.")
         wc_df = pd.read_csv(wooclap_correction_csv)
         assert len(wc_df) == 2, f"Wooclap: expected 2 students, got {len(wc_df)}"
-        print(f"Wooclap correction OK — {len(wc_df)} student(s) processed.")
+        print(f"Wooclap correction OK â€” {len(wc_df)} student(s) processed.")
 
         # Moodle
         moodle_csv = os.path.join(online_test_dir, "moodle_results.csv")
@@ -294,7 +304,7 @@ def handle_test(args):
             raise RuntimeError("Moodle: correction_results.csv was not created.")
         mo_df = pd.read_csv(moodle_correction_csv)
         assert len(mo_df) == 2, f"Moodle: expected 2 students, got {len(mo_df)}"
-        print(f"Moodle correction OK — {len(mo_df)} student(s) processed.")
+        print(f"Moodle correction OK â€” {len(mo_df)} student(s) processed.")
 
         print("\n--- Test command finished successfully! ---")
     
@@ -341,7 +351,7 @@ def handle_generate(args):
 
     # --- Pipeline Execution ---
     md_path, tsv_path = artifacts.get_artifact_paths(args.output_md_path)
-    pipeline = AutoTestIAPipeline(config_override=config_override)
+    pipeline = PTestGenPipeline(config_override=config_override)
     pipeline.generate(
         input_material_paths=args.input_material,
         image_paths=args.images,
@@ -354,7 +364,8 @@ def handle_generate(args):
         evaluator_instructions=args.evaluator_instructions,
         evaluate_initial=args.evaluate_initial,
         evaluate_reviewed=args.evaluate_reviewed,
-        num_questions_per_image=args.num_questions_per_image
+        num_questions_per_image=args.num_questions_per_image,
+        question_type=args.question_type,
     )
 
 def handle_export(args):
@@ -391,7 +402,7 @@ def handle_export(args):
     if getattr(args, "evaluator_model", None):
         config_override["evaluator_model"] = args.evaluator_model
 
-    pipeline = AutoTestIAPipeline(config_override=config_override)
+    pipeline = PTestGenPipeline(config_override=config_override)
     pipeline.export(
         records_to_export=records_to_export,
         input_md_path=md_path, # Pass the markdown path
@@ -426,7 +437,7 @@ def handle_export(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AutoTestIA: A tool for semi-automatic generation of multiple-choice questions.",
+        description="PTestGen: A tool for AI-assisted generation of test questions.",
         formatter_class=argparse.RawTextHelpFormatter
     )
 
@@ -452,6 +463,7 @@ def main():
     parser_generate.add_argument("-i", "--images", nargs='+', help="Optional paths to image files.", default=[])
     parser_generate.add_argument("-n", "--num-questions", type=int, default=config.DEFAULT_NUM_QUESTIONS, help=f"Number of questions to generate from text (default: {config.DEFAULT_NUM_QUESTIONS}).")
     parser_generate.add_argument("--num-questions-per-image", type=int, default=1, help="Number of questions to generate per image (default: 1).")
+    parser_generate.add_argument("--question-type", choices=["multiple_choice", "open_answer", "mixed"], default="multiple_choice", help="Type of questions to generate: multiple_choice, open_answer, or mixed.")
     parser_generate.add_argument("--provider", choices=config.GENERATOR_MODEL_MAP.keys(), default=config.LLM_PROVIDER, help=f"LLM provider to use (default: {config.LLM_PROVIDER}).")
     parser_generate.add_argument("--generator-model", default=None, help="Specific model for the generator agent.")
     parser_generate.add_argument("--reviewer-model", default=None, help="Specific model for the reviewer agent.")
@@ -569,6 +581,9 @@ def main():
     parser_correct_pexams.add_argument("--name-column", help="Column name for student names.")
     parser_correct_pexams.add_argument("--simplify-csv", action="store_true", help="Simplify the output CSV.")
     parser_correct_pexams.add_argument("--fuzzy-id-match", type=int, default=100, help="Fuzzy matching threshold (0-100).")
+    parser_correct_pexams.add_argument("--name-match-threshold", type=float, default=70.0, help="Fuzzy matching threshold (0-100) for matching OCR names to --input-csv before analysis.")
+    parser_correct_pexams.add_argument("--use-llm-name-ocr", action="store_true", help="Use OpenRouter vision OCR for student names before roster matching.")
+    parser_correct_pexams.add_argument("--openrouter-name-model", default="google/gemini-3-flash-preview", help="OpenRouter vision model for --use-llm-name-ocr.")
     parser_correct_pexams.add_argument("--input-encoding", default="utf-8", help="Encoding of input CSV.")
     parser_correct_pexams.add_argument("--input-sep", default=",", help="Separator for input CSV.")
     parser_correct_pexams.add_argument("--output-decimal-sep", default=".", help="Decimal separator for output marks.")
@@ -587,7 +602,7 @@ def main():
     )
     parser_correct_wooclap.add_argument(
         "--fuzzy-threshold", type=int, default=80,
-        help="Minimum similarity (0–100) for fuzzy question-text matching. Default: 80.",
+        help="Minimum similarity (0â€“100) for fuzzy question-text matching. Default: 80.",
     )
     parser_correct_wooclap.add_argument(
         "--encoding", default="auto",
@@ -694,3 +709,5 @@ def main():
 
 if __name__ == "__main__":
     main() 
+
+
