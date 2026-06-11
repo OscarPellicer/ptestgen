@@ -2,6 +2,12 @@
 
 PTestGen is a Python-based tool designed to assist educators in generating test questions from educational materials, images, or specific instructions using Large Language Models (LLMs). It supports multiple-choice questions, open-answer questions with expected responses and rubrics, and mixed question sets.
 
+## AI4Exams ecosystem
+
+PTestGen is part of the AI4Exams ecosystem together with `pexams`, `pevaluate`, and the planned `pstudio` visual orchestration layer.
+
+![AI4Exams ecosystem](https://raw.githubusercontent.com/OscarPellicer/ptestgen/refs/heads/main/media/ai4exams_ecosystem.png)
+
 ## Project Goal
 
 To develop and evaluate an AI-powered tool (PTestGen) for semi-automatic generation of test questions via intelligent agents, integrated into an efficient, user-friendly Python pipeline adaptable to various educational platforms (Moodle, Wooclap, [pexams](https://github.com/OscarPellicer/pexams), R/exams).
