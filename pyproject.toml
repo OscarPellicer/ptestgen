@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ptestgen"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
   { name="PTestGen Team (Oscar)", email="oscar.pellicer@uv.es" },
 ]
@@ -40,8 +40,14 @@ dependencies = [
     "pdf2image>=1.16.0",
     "opencv-python>=4.7.0",
     "tqdm>=4.62.0",
-    "pexams>=0.10.0",
+    "pexams>=0.12.0",
+    "pevaluate>=0.1.1",
     "openpyxl>=3.0.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "llm: tests that call a real LLM provider and may burn API credits",
 ]
 
 [project.urls]
@@ -52,6 +58,7 @@ ptestgen = "main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["ptestgen*"]
 
 [tool.setuptools.package-data]
 ptestgen = ["media/image.jpg"]

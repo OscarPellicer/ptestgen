@@ -308,11 +308,11 @@ ptestgen correct pexams generated/topic_questions.md \
 
 1. Open your Wooclap event and click **"Ver resultados"** (View results):
 
-   ![Wooclap â€” click "Ver resultados"](media/wooclap_download_results_1.png)
+    ![Wooclap click "Ver resultados"](https://raw.githubusercontent.com/OscarPellicer/ptestgen/refs/heads/main/media/wooclap_download_results_1.png)
 
 2. In the results view, click **"Exportar a Excel"**:
 
-   ![Wooclap â€” click "Exportar a Excel"](media/wooclap_download_results_2.png)
+    ![Wooclap click "Exportar a Excel"](https://raw.githubusercontent.com/OscarPellicer/ptestgen/refs/heads/main/media/wooclap_download_results_2.png)
 
 This produces an `.xlsx` file (also available as CSV via the same button's dropdown). Pass it to the command below.
 
@@ -346,7 +346,7 @@ Column headers in the Wooclap file follow the pattern `Q1 - <question text> (N p
 
 1. Open your Moodle quiz, go to the **Results** tab, then choose **Responses**:
 
-   ![Moodle â€” Results â†’ Responses](media/moodle_download_results.png)
+    ![Moodle â€” Results â†’ Responses](https://raw.githubusercontent.com/OscarPellicer/ptestgen/refs/heads/main/media/moodle_download_results.png)
 
 2. Scroll down and click **Download** (choose "Comma separated values (.csv)" or export directly as `.xlsx`).
 
