@@ -126,16 +126,16 @@ The library has been tested on Python 3.11.
 | :--- | :--- | :--- |
 | PDF | Shared `pevaluate` parser using `pymupdf4llm.to_markdown(..., header=False, footer=False, use_ocr=False, force_text=True)` with the modern layout backend by default | Extracted to relative Markdown references; attached as context only with `--include-images`. |
 | DOCX | Shared `pevaluate` parser using `python-docx` | Extracted to relative Markdown references. |
-| PPTX | Shared `pevaluate` parser using `python-pptx` from `OscarPellicer/python-pptx`, with package-XML fallback | Extracted to relative Markdown references. |
+| PPTX | Shared `pevaluate` parser using PyPI `python-pptx`, with package-XML fallback | Extracted to relative Markdown references. |
 | MD/HTML | Native text with local/data image reference rewriting | References are kept/rebased. |
 | IPYNB | `nbconvert.MarkdownExporter` through the shared parser | Markdown output is used. |
 | Direct image via `--images` | Image file validated with Pillow | Passed to the vision model to generate image-specific questions. |
 | TXT/code/SQL | UTF-8 text | No image extraction. |
 
-The `python-pptx` dependency uses Oscar's fork so MathML/equation text in PowerPoint is parsed better:
+`ptestgen` and `pevaluate` depend on the standard PyPI `python-pptx` package so releases can be uploaded to PyPI. For local work with PPTX files that need improved equation/MathML extraction, you can manually replace it with Oscar's fork after installing the package:
 
 ```bash
-pip install git+https://github.com/OscarPellicer/python-pptx.git
+pip install --force-reinstall --no-deps git+https://github.com/OscarPellicer/python-pptx.git
 ```
 
 The shared parser also normalizes common PDF ligature/control-character artifacts such as `fi`/`fl` replacements after extraction.
