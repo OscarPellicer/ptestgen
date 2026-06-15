@@ -9,9 +9,10 @@ python-dotenv>=1.0.0
 pydantic>=2.0.0 # For Google structured output
 
 # Parsing Libraries
-pypdf>=4.0.0 # For PDF text extraction
+pymupdf4llm>=1.27.2.3 # For PDF to Markdown conversion
+pypdf>=4.0.0 # Fallback for PDF text extraction
 python-docx>=1.1.0 # For DOCX text extraction
-python-pptx>=0.6.23 # For PPTX text extraction
+python-pptx @ git+https://github.com/OscarPellicer/python-pptx.git # For PPTX text / equation extraction
 striprtf>=0.0.26 # For RTF text extraction
 Pillow>=10.0.0
 levenshtein>=0.20.0 # For Levenshtein distance calculation
@@ -27,4 +28,5 @@ pdf2image>=1.16.0 # For PDF to image conversion
 opencv-python>=4.7.0 # For image processing (cv2)
 tqdm>=4.62.0 # For progress bars
 pexams>=0.10.0 # For exam generation and correction, and exporting to many formats
+pevaluate>=0.1.7 # Shared document-to-Markdown parser
 

@@ -37,8 +37,20 @@ class AnthropicProvider(LLMProvider):
             return next((block.text for block in message.content if block.type == 'text'), None)
         return None
 
-    def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int) -> Optional[str]:
-        messages = [{"role": "user", "content": user_prompt}]
+    def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int, image_paths: Optional[list[str]] = None) -> Optional[str]:
+        if image_paths:
+            from .openai_compatible import encode_image_to_base64, get_image_mime_type
+            content = []
+            for image_path in image_paths:
+                base64_image = encode_image_to_base64(image_path)
+                if not base64_image:
+                    continue
+                mime_type = get_image_mime_type(image_path)
+                content.append({"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": base64_image}})
+            content.append({"type": "text", "text": user_prompt})
+            messages = [{"role": "user", "content": content}]
+        else:
+            messages = [{"role": "user", "content": user_prompt}]
         return self._call_anthropic_messages_api(system_prompt, messages)
 
     def generate_question_from_image(self, system_prompt: str, user_prompt: str, image_path: str, num_distractors: int) -> Optional[str]:

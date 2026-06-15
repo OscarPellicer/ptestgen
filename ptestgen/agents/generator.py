@@ -146,7 +146,8 @@ class QuestionGenerator(BaseAgent):
                                      language: str = config.DEFAULT_LANGUAGE,
                                      custom_instructions: Optional[str] = None,
                                      source_material_path: Optional[str] = None,
-                                     question_type: str = "multiple_choice") -> List[QuestionRecord]:
+                                     question_type: str = "multiple_choice",
+                                     context_image_paths: Optional[List[str]] = None) -> List[QuestionRecord]:
         """
         Generates multiple-choice questions based on text or instructions.
         Returns a list of QuestionRecord objects.
@@ -172,6 +173,11 @@ class QuestionGenerator(BaseAgent):
         user_prompt_parts = []
         if text_content:
             user_prompt_parts.append(f"Context:\n{text_content}\n")
+        if context_image_paths:
+            user_prompt_parts.append(
+                f"{len(context_image_paths)} image(s) extracted from the context document are attached for reference. "
+                "Use them only as supporting context for the requested questions; do not create separate image-specific questions unless the text context calls for it."
+            )
         if question_type == "open_answer":
             user_prompt_parts.append(f"Generate exactly {num_questions} open-answer questions {'based on the context above' if text_content else 'based on the instructions'}.")
             user_prompt_parts.append("Each question must include expected_answer, rubric, and answer_lines.")
@@ -190,7 +196,8 @@ class QuestionGenerator(BaseAgent):
             response_content = self.provider.generate_questions_from_text(
                 system_prompt=system_prompt_template,
                 user_prompt=user_prompt,
-                num_distractors=num_distractors
+                num_distractors=num_distractors,
+                image_paths=context_image_paths or [],
             )
 
             if not response_content:
