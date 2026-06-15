@@ -170,7 +170,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
         return content
 
-    def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int) -> Optional[str]:
+    def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int, image_paths: Optional[list[str]] = None) -> Optional[str]:
         from ..schemas import LLMQuestionList
         schema = LLMQuestionList.model_json_schema()
 
@@ -182,9 +182,23 @@ class OpenAICompatibleProvider(LLMProvider):
                 question_item_schema['properties']['distractors']['maxItems'] = num_distractors
 
         params = self._construct_base_params(schema)
+        user_content: Any = user_prompt
+        if image_paths:
+            content_parts = [{"type": "text", "text": user_prompt}]
+            for image_path in image_paths:
+                base64_image = encode_image_to_base64(image_path)
+                if not base64_image:
+                    continue
+                mime_type = get_image_mime_type(image_path)
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{base64_image}"},
+                })
+            user_content = content_parts
+
         params["messages"] = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
+            {"role": "user", "content": user_content}
         ]
 
         try:

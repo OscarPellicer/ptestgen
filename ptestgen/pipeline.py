@@ -104,7 +104,8 @@ class PTestGenPipeline:
                  evaluate_initial: bool = False,
                  evaluate_reviewed: bool = False,
                  num_questions_per_image: int = 1,
-                 question_type: str = "multiple_choice"):
+                 question_type: str = "multiple_choice",
+                 include_images: bool = False):
         """
         Runs the full question generation and review pipeline.
         """
@@ -113,14 +114,25 @@ class PTestGenPipeline:
 
         # 1. Parse Input Material
         text_content = ""
+        extracted_image_paths: List[str] = []
         if input_material_paths:
             print("\nStep 1: Parsing input material...")
             all_text_content = []
             for path in input_material_paths:
                 logging.info(f"Parsing input material: {path}")
                 try:
-                    # NOTE: Image extraction from docs is not fully supported in this refactor pass
-                    parsed_text, _ = parser.parse_input_material(path)
+                    parsed_text, extracted_images = parser.parse_input_material(
+                        path,
+                        output_dir=os.path.dirname(os.path.abspath(output_md_path)),
+                    )
+                    if extracted_images:
+                        extracted_image_paths.extend(extracted_images)
+                        logging.info(
+                            "Extracted %d image asset(s) referenced from intermediate Markdown for %s. "
+                            "They are only sent as context images when --include-images is used.",
+                            len(extracted_images),
+                            path,
+                        )
                     if parsed_text:
                         all_text_content.append(parsed_text)
                     else:
@@ -151,6 +163,7 @@ class PTestGenPipeline:
             custom_instructions=generator_instructions,
             source_material_path=", ".join(input_material_paths) if input_material_paths else None,
             question_type=question_type,
+            context_image_paths=extracted_image_paths if include_images else [],
         )
         
         # Add image-based questions

@@ -73,6 +73,7 @@ def handle_test(args):
             evaluate_initial=True, evaluate_reviewed=True,
             num_questions_per_image=1,
             question_type="multiple_choice",
+            include_images=False,
         )
         handle_generate(args_gen_or)
 
@@ -371,6 +372,7 @@ def handle_generate(args):
         evaluate_reviewed=args.evaluate_reviewed,
         num_questions_per_image=args.num_questions_per_image,
         question_type=args.question_type,
+        include_images=args.include_images,
     )
 
 def handle_export(args):
@@ -465,7 +467,8 @@ def main():
     parser_generate.add_argument("--generator-instructions", type=str, default=None, help="Custom instructions for the generator prompt.")
     parser_generate.add_argument("--reviewer-instructions", type=str, default=None, help="Custom instructions for the reviewer prompt.")
     parser_generate.add_argument("--evaluator-instructions", type=str, default=None, help="Custom instructions for the evaluator prompt.")
-    parser_generate.add_argument("-i", "--images", nargs='+', help="Optional paths to image files.", default=[])
+    parser_generate.add_argument("-i", "--images", nargs='+', help="Optional image file path(s) to generate image-specific questions from.", default=[])
+    parser_generate.add_argument("--include-images", action="store_true", help="Attach images extracted from input documents as context for text-based generation. Does not create image-specific questions.")
     parser_generate.add_argument("-n", "--num-questions", type=int, default=config.DEFAULT_NUM_QUESTIONS, help=f"Number of questions to generate from text (default: {config.DEFAULT_NUM_QUESTIONS}).")
     parser_generate.add_argument("--num-questions-per-image", type=int, default=1, help="Number of questions to generate per image (default: 1).")
     parser_generate.add_argument("--question-type", choices=["multiple_choice", "open_answer", "mixed"], default="multiple_choice", help="Type of questions to generate: multiple_choice, open_answer, or mixed.")

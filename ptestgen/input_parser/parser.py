@@ -1,4 +1,5 @@
 ﻿import os
+from pathlib import Path
 from typing import List, Dict, Any, Tuple
 import logging
 
@@ -46,8 +47,14 @@ except ImportError:
     MarkdownExporter = None
     logging.warning("`nbconvert` library not found. Install with `pip install nbconvert` to enable IPYNB parsing.")
 
+try:
+    from autocorrect import utils as pevaluate_utils
+except ImportError:
+    pevaluate_utils = None
+    logging.warning("`pevaluate` Markdown parser not found. Falling back to legacy text extraction.")
 
-def parse_input_material(file_path: str) -> Tuple[str, list]:
+
+def parse_input_material(file_path: str, output_dir: str = None, markdown_config: dict = None) -> Tuple[str, list]:
     """
     Parses the input material file and returns its text content.
     Optionally extracts images found within the document (functionality not implemented yet).
@@ -73,6 +80,27 @@ def parse_input_material(file_path: str) -> Tuple[str, list]:
     image_references = [] # To hold references to extracted images later
 
     logging.info(f"Attempting to parse '{file_path}' (extension: {extension})")
+
+    if pevaluate_utils is not None and extension in {
+        ".txt", ".md", ".markdown", ".pdf", ".docx", ".pptx", ".html", ".htm",
+        ".ipynb", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+    }:
+        asset_base_dir = Path(output_dir) if output_dir else Path(file_path).parent
+        image_output_dir = asset_base_dir / f"{Path(file_path).stem}_assets"
+        extraction = pevaluate_utils.read_file_markdown(
+            file_path,
+            image_output_dir=image_output_dir,
+            image_reference_dir=asset_base_dir,
+            markdown_config=markdown_config or {},
+        )
+        image_references = list(getattr(extraction, "image_paths", []) or [])
+        logging.info(
+            "Parsed %s to Markdown using pevaluate parser. Extracted %d chars and %d image asset(s).",
+            file_path,
+            len(extraction.markdown),
+            len(image_references),
+        )
+        return extraction.markdown.strip(), image_references
 
     try:
         if extension == ".txt" or extension == ".md": # Treat Markdown as plain text for now

@@ -22,7 +22,7 @@ To develop and evaluate an AI-powered tool (PTestGen) for semi-automatic generat
     *   Anthropic (e.g., Claude 4.5 Sonnet, Claude 4.5 Haiku): *Discouraged due to structured output not being supported.*
     *   Replicate (e.g., Llama 3.2): *Discouraged due to structured output not being supported.*
 *   **Flexible Input:**
-    *   **Document-Based Generation (OE1):** Generate questions from text documents (**TXT, MD, PDF, DOCX, PPTX, RTF supported for text extraction**) and images (PNG, JPG, GIF, BMP). PDF/DOCX/PPTX parsing requires installing optional dependencies.
+    *   **Document-Based Generation (OE1):** Generate questions from text documents (**TXT, MD, PDF, DOCX, PPTX, RTF supported for text extraction**) and images (PNG, JPG, GIF, BMP). Document inputs are converted to an intermediate Markdown representation with image references when possible.
     *   **Instruction-Based Generation:** Generate questions based on specific instructions provided via the command line, without requiring an input document.
 *   **Customizable Prompts:** Add custom instructions to the underlying LLM prompts for generation and review using `--generator-instructions` and `--reviewer-instructions`.
 *   **Question Type Control:** Generate multiple-choice questions, open-answer questions with expected answers and rubrics, or mixed sets using `--question-type multiple_choice|open_answer|mixed`.
@@ -118,15 +118,27 @@ The library has been tested on Python 3.11.
         playwright install chromium
         ```
 
-**Note on parsing `.pptx` files (WIP)**
+**Document-to-Markdown input pipeline**
 
-Unfortunately, the `python-pptx` library in charge of parsing `.pptx` files does not correctly parse MathML equations. This has been solved in my fork of the library: https://github.com/OscarPellicer/python-pptx.
+`ptestgen generate` converts document inputs to Markdown before sending text to the generator. Images embedded in documents are always extracted when the parser supports them and the intermediate Markdown contains relative references to those assets. Those extracted document images are **not** sent as vision-model inputs by default. Use `--include-images` to attach extracted document images as context for text-based generation. Use `--images` for a different workflow: generating specific questions from explicit image files.
 
-To use it, you need to install this version of `python-pptx` manually AFTER installing everything else:
+| Input | Markdown pipeline | Image handling |
+| :--- | :--- | :--- |
+| PDF | Shared `pevaluate` parser using `pymupdf4llm.to_markdown(..., header=False, footer=False, use_ocr=False, force_text=True)` with the modern layout backend by default | Extracted to relative Markdown references; attached as context only with `--include-images`. |
+| DOCX | Shared `pevaluate` parser using `python-docx` | Extracted to relative Markdown references. |
+| PPTX | Shared `pevaluate` parser using `python-pptx` from `OscarPellicer/python-pptx`, with package-XML fallback | Extracted to relative Markdown references. |
+| MD/HTML | Native text with local/data image reference rewriting | References are kept/rebased. |
+| IPYNB | `nbconvert.MarkdownExporter` through the shared parser | Markdown output is used. |
+| Direct image via `--images` | Image file validated with Pillow | Passed to the vision model to generate image-specific questions. |
+| TXT/code/SQL | UTF-8 text | No image extraction. |
+
+The `python-pptx` dependency uses Oscar's fork so MathML/equation text in PowerPoint is parsed better:
 
 ```bash
 pip install git+https://github.com/OscarPellicer/python-pptx.git
 ```
+
+The shared parser also normalizes common PDF ligature/control-character artifacts such as `fi`/`fl` replacements after extraction.
 
 ## Usage
 
@@ -403,7 +415,8 @@ They also update `metadata.tsv` with `stats_total_answers` and `stats_answer_dis
 *   `-o, --output-dir`: Directory to save the generated `questions.md` and `metadata.tsv` files.
 *   `--generator-instructions`: Custom instructions for the generator prompt.
 *   `--reviewer-instructions`: Custom instructions for the reviewer prompt.
-*   `-i, --images`: Optional path(s) to image file(s) to generate questions from.
+*   `-i, --images`: Optional path(s) to image file(s) to generate image-specific questions from.
+*   `--include-images`: Attach images extracted from input documents as context for text-based generation. This does not create image-specific questions.
 *   `-n, --num-questions`: The **total** number of questions to generate. This is treated as a target. If image-based questions are requested, they are prioritized. See `--num-questions-per-image` for details.
 *   `--num-questions-per-image`: Number of questions to generate for each image provided via `--images`. Defaults to 1.
     *   **Note on Question Counts:** The pipeline prioritizes questions from images.

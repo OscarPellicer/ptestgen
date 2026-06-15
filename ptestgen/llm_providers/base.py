@@ -15,7 +15,7 @@ class LLMProvider(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int) -> Optional[str]:
+    def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int, image_paths: Optional[List[str]] = None) -> Optional[str]:
         """Generates questions from text content."""
         pass
     

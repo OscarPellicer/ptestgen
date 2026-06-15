@@ -38,8 +38,9 @@ class GoogleProvider(LLMProvider):
         )
         return response.text if response else None
 
-    def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int) -> Optional[str]:
+    def generate_questions_from_text(self, system_prompt: str, user_prompt: str, num_distractors: int, image_paths: Optional[list[str]] = None) -> Optional[str]:
         from ..schemas import LLMQuestionList
+        from .openai_compatible import encode_image_to_base64, get_image_mime_type
         schema = LLMQuestionList.model_json_schema()
 
         if 'properties' in schema and 'questions' in schema['properties']:
@@ -48,7 +49,14 @@ class GoogleProvider(LLMProvider):
                 question_item_schema['properties']['distractors']['minItems'] = num_distractors
                 question_item_schema['properties']['distractors']['maxItems'] = num_distractors
         
-        return self._generate_content(schema, [system_prompt, user_prompt])
+        prompts = [system_prompt, user_prompt]
+        for image_path in image_paths or []:
+            base64_image = encode_image_to_base64(image_path)
+            if not base64_image:
+                continue
+            mime_type = get_image_mime_type(image_path)
+            prompts.append({"mime_type": mime_type, "data": base64.b64decode(base64_image)})
+        return self._generate_content(schema, prompts)
 
     def generate_question_from_image(self, system_prompt: str, user_prompt: str, image_path: str, num_distractors: int) -> Optional[str]:
         from ..schemas import LLMQuestionList
