@@ -1,4 +1,4 @@
-﻿import os
+import os
 from typing import List, Optional
 import logging
 import sys
@@ -260,7 +260,8 @@ class PTestGenPipeline:
                evaluator_instructions: Optional[str] = None,
                max_image_width: Optional[int] = None,
                max_image_height: Optional[int] = None,
-               custom_header: Optional[str] = None
+               custom_header: Optional[str] = None,
+               mc_total_points: Optional[float] = None
                ):
         """
         Runs the export part of the pipeline.
@@ -307,11 +308,9 @@ class PTestGenPipeline:
 
         # Set fixed seeds for this export run to ensure consistency across formats
         # If no seed provided, generate one random seed to use for ALL formats in this run
+        # No seed means "keep the author's order" (as documented and as pexams interprets None);
+        # every format then shares the same (unshuffled) order.
         effective_q_seed = shuffle_questions_seed
-        if effective_q_seed is None:
-            # Generate a random seed if none provided, so all formats get SAME random shuffle
-            effective_q_seed = random.randint(0, 2**32 - 1)
-            logging.info(f"No shuffle seed provided. Using generated seed {effective_q_seed} for consistency across formats.")
 
         effective_a_seed = shuffle_answers_seed if shuffle_answers_seed is not None else 42
 
@@ -352,6 +351,7 @@ class PTestGenPipeline:
                     # seed_answers removed, handled via utils.set_seeds
                     custom_header=custom_header,
                     markdown_asset_base_dir=os.path.dirname(os.path.abspath(input_md_path)),
+                    mc_total_points=mc_total_points,
                 )
                 print(f"Pexams outputs generated in: {os.path.abspath(output_dir)}")
 

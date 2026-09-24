@@ -1,4 +1,4 @@
-﻿import abc
+import abc
 from typing import Any, Dict, Optional, List
 
 class LLMProvider(abc.ABC):
@@ -42,16 +42,34 @@ class LLMProvider(abc.ABC):
         return False
         
     def _call_llm_with_retry(self, api_call_func, *args, **kwargs):
-        """Wrapper to handle retries for API calls. Can be overridden by providers if needed."""
-        # This is a simplified version. The more complex one from BaseLLMAgent can be moved here.
-        # For now, let's keep it simple. The full implementation will be moved later.
+        """Calls the API with retries and a hard wall-clock deadline per attempt."""
         import time
         import random
+        import threading
         from .. import config
+
+        def call_with_deadline():
+            outcome = {}
+
+            def target():
+                try:
+                    outcome["value"] = api_call_func(*args, **kwargs)
+                except Exception as error:  # re-raised in the caller thread
+                    outcome["error"] = error
+
+            # Daemon thread: a hung request must not block interpreter shutdown.
+            worker = threading.Thread(target=target, daemon=True)
+            worker.start()
+            worker.join(config.LLM_HARD_TIMEOUT)
+            if worker.is_alive():
+                raise TimeoutError(f"LLM call exceeded the hard timeout of {config.LLM_HARD_TIMEOUT}s")
+            if "error" in outcome:
+                raise outcome["error"]
+            return outcome.get("value")
 
         for attempt in range(config.LLM_MAX_RETRIES + 1):
             try:
-                return api_call_func(*args, **kwargs)
+                return call_with_deadline()
             except Exception as e:
                 if attempt == config.LLM_MAX_RETRIES:
                     raise
@@ -59,5 +77,3 @@ class LLMProvider(abc.ABC):
                 print(f"API call failed with {type(e).__name__}, retrying in {delay:.2f}s...")
                 time.sleep(delay)
         return None
-
-

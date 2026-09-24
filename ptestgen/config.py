@@ -1,4 +1,4 @@
-﻿# Configuration settings for PTestGen
+# Configuration settings for PTestGen
 
 import os
 from pathlib import Path
@@ -23,12 +23,21 @@ load_project_dotenv()
 # Select the provider: "openai", "google", "anthropic", "replicate", "stub"
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")
 
+def _clean_key(name):
+    """Reads an API key, stripping whitespace, CR (Windows .env files) and quotes.
+    A trailing CR makes httpx reject the Authorization header and the traceback leaks the key."""
+    value = os.getenv(name)
+    if value is None:
+        return None
+    return value.strip().strip('"\'').strip() or None
+
+
 # API Keys from environment variables
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENAI_API_KEY = _clean_key("OPENAI_API_KEY")
+GOOGLE_API_KEY = _clean_key("GOOGLE_API_KEY")
+ANTHROPIC_API_KEY = _clean_key("ANTHROPIC_API_KEY")
+REPLICATE_API_TOKEN = _clean_key("REPLICATE_API_TOKEN")
+OPENROUTER_API_KEY = _clean_key("OPENROUTER_API_KEY")
 
 PROVIDER_API_KEY_MAP = {
     "openai": "OPENAI_API_KEY",
@@ -181,6 +190,9 @@ Output your evaluation as a JSON object with keys: "guessed_correct_answer" (int
 # --- Other ---
 # Timeout for LLM API calls (in seconds)
 LLM_TIMEOUT = 120
+# Hard wall-clock limit per attempt. The client timeout is a per-read timeout, so a
+# server that keeps the connection alive (e.g. OpenRouter keep-alive padding) can hang forever.
+LLM_HARD_TIMEOUT = int(os.getenv("PTESTGEN_LLM_HARD_TIMEOUT", "300"))
 # Max retries for LLM API calls
 LLM_MAX_RETRIES = 2
 # Base delay for retries (in seconds), will be subject to exponential backoff

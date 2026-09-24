@@ -1,4 +1,4 @@
-﻿from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 from ..schemas import QuestionRecord, QuestionStage, QuestionContent, QuestionStageContent, ChangeMetrics
 from .. import artifacts
 from .. import config
@@ -6,6 +6,38 @@ import logging
 from .base import BaseAgent
 from ..llm_providers import get_provider, LLMProvider
 from tqdm import tqdm
+import re
+import unicodedata
+
+# Characters that should survive a review untouched in Spanish/Catalan/etc. texts.
+_NON_ASCII_LETTER = re.compile(r"[^\x00-\x7f]")
+_SUSPICIOUS = re.compile(r"[#&][a-záéíóúñ]|[a-záéíóúñ][#&]|[\ufffd]|·¡")
+
+
+def _all_text(content) -> str:
+    parts = [content.text or "", content.correct_answer or ""] + list(content.distractors or [])
+    return " ".join(parts)
+
+
+def review_corrupts_characters(original, reviewed) -> bool:
+    """Detects reviews that mangle non-ASCII characters (seen with some models via
+    structured output: 'clasificaci#n', 'categor&as', 'clculo', '·¡A diferencia')."""
+    before, after = _all_text(original), _all_text(reviewed)
+    if _SUSPICIOUS.search(after) and not _SUSPICIOUS.search(before):
+        return True
+    # Same letter with a different diacritic than in the original (e.g. 'ù' where the
+    # original only had 'ú') is a transcoding error, not an editorial change.
+    def base(c):
+        return unicodedata.normalize("NFD", c)[0]
+    old_chars = set(_NON_ASCII_LETTER.findall(before))
+    new_chars = set(_NON_ASCII_LETTER.findall(after)) - old_chars
+    old_bases = {base(c) for c in old_chars}
+    if any(unicodedata.category(c).startswith("L") and base(c) in old_bases for c in new_chars):
+        return True
+    n_before = len(_NON_ASCII_LETTER.findall(unicodedata.normalize("NFC", before)))
+    n_after = len(_NON_ASCII_LETTER.findall(unicodedata.normalize("NFC", after)))
+    # Reviews shorten text a bit, but losing most accents means the encoding broke.
+    return n_before >= 4 and n_after < 0.5 * n_before * (len(after) / max(len(before), 1))
 
 
 class QuestionReviewer(BaseAgent):
@@ -65,7 +97,16 @@ class QuestionReviewer(BaseAgent):
         reviewed_content: Optional[QuestionContent] = None
 
         if self.use_llm:
-            reviewed_content = self._apply_llm_review(record.generated.content, custom_instructions)
+            original = record.generated.content
+            for attempt in range(2):
+                reviewed_content = self._apply_llm_review(original, custom_instructions)
+                if reviewed_content is None or not review_corrupts_characters(original, reviewed_content):
+                    break
+                logging.warning(
+                    f"Review of {record.question_id} corrupted non-ASCII characters (attempt {attempt + 1}); "
+                    + ("retrying." if attempt == 0 else "keeping the generated version.")
+                )
+                reviewed_content = None
         
         # If no LLM review or LLM review failed, use the original content
         if reviewed_content is None:
@@ -119,7 +160,11 @@ class QuestionReviewer(BaseAgent):
                        len(reviewed_q_data.get("distractors")) == len(original_content.distractors):
                         
                         logging.info(f"Applying LLM suggested revisions.")
-                        return QuestionContent(**reviewed_q_data)
+                        return original_content.model_copy(update={
+                            "text": reviewed_q_data["text"],
+                            "correct_answer": reviewed_q_data["correct_answer"],
+                            "distractors": reviewed_q_data["distractors"],
+                        })
                     else:
                         logging.warning(f"LLM returned 'reviewed_question' with invalid structure/types or distractor count: {reviewed_q_data}")
             else:
