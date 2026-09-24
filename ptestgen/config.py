@@ -67,20 +67,20 @@ GENERATOR_MODEL_MAP = {
 
 REVIEWER_MODEL_MAP = { # Potentially use a cheaper model for review
     "openai": os.getenv("OPENAI_REVIEWER_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_REVIEWER_MODEL", "gemini-3-flash-preview"),
+    "google": os.getenv("GOOGLE_REVIEWER_MODEL", "gemini-3.8-flash"),
     "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-haiku-4-5"), 
     "replicate": os.getenv("REPLICATE_REVIEWER_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
-    "openrouter": os.getenv("OPENROUTER_REVIEWER_MODEL", "google/gemini-3-flash-preview"),
+    "openrouter": os.getenv("OPENROUTER_REVIEWER_MODEL", "google/gemini-3.8-flash"),
     "ollama": os.getenv("OLLAMA_REVIEWER_MODEL", "gemma3:4b"),
     "stub": "stub-reviewer-model"
 }
 
 EVALUATOR_MODEL_MAP = { # Potentially use a cheaper model for review
     "openai": os.getenv("OPENAI_EVALUATOR_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_EVALUATOR_MODEL", "gemini-3-flash-preview"),
+    "google": os.getenv("GOOGLE_EVALUATOR_MODEL", "gemini-3.8-flash"),
     "anthropic": os.getenv("ANTHROPIC_EVALUATOR_MODEL", "claude-haiku-4-5"), 
     "replicate": os.getenv("REPLICATE_EVALUATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
-    "openrouter": os.getenv("OPENROUTER_EVALUATOR_MODEL", "google/gemini-3-flash-preview"),
+    "openrouter": os.getenv("OPENROUTER_EVALUATOR_MODEL", "google/gemini-3.8-flash"),
     "ollama": os.getenv("OLLAMA_EVALUATOR_MODEL", "gemma3:4b"),
     "stub": "stub-evaluator-model"
 }

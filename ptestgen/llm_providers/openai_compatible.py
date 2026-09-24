@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 from typing import Any, Dict, Optional, Tuple, Type
 from .base import LLMProvider
 from .. import config
@@ -46,6 +46,12 @@ def get_image_mime_type(image_path):
     elif ext == ".gif": return "image/gif"
     elif ext == ".bmp": return "image/bmp"
     return "application/octet-stream"
+
+
+def openrouter_extra_body(model_name):
+    """Gemini Flash models on OpenRouter reason by default and cannot disable it; the
+    minimal effort avoids paying for (and waiting on) reasoning tokens."""
+    return {"reasoning": {"effort": "minimal"}} if "flash" in str(model_name).lower() else {}
 
 class OpenAICompatibleProvider(LLMProvider):
     """Provider for OpenAI, OpenRouter, and other OpenAI-compatible APIs like Ollama."""
@@ -98,6 +104,8 @@ class OpenAICompatibleProvider(LLMProvider):
         """Constructs the base parameters for an API call, including structured output format."""
         params: Dict[str, Any] = {"model": self.model_name}
         if self.provider == "openrouter":
+             if openrouter_extra_body(self.model_name):
+                 params["extra_body"] = openrouter_extra_body(self.model_name)
              schema = _prepare_strict_json_schema(schema)
              params["response_format"] = {
                 "type": "json_schema",
