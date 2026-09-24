@@ -66,9 +66,9 @@ def handle_test(args):
             input_material=None, output_md_path=or_md_path,
             generator_instructions=instructions, reviewer_instructions=None, evaluator_instructions=None,
             images=[image_path] if image_path else [], num_questions=test_questions, provider="openrouter",
-            generator_model="google/gemini-3-flash-preview", # A quicker model for testing
-            reviewer_model="google/gemini-3-flash-preview",
-            evaluator_model="google/gemini-3-flash-preview",
+            generator_model="google/gemini-3.8-flash", # A quicker model for testing
+            reviewer_model="google/gemini-3.8-flash",
+            evaluator_model="google/gemini-3.8-flash",
             use_llm_review=True, language="es",
             evaluate_initial=True, evaluate_reviewed=True,
             num_questions_per_image=1,
@@ -220,7 +220,7 @@ def handle_test(args):
             void_questions=None, void_questions_nicely=None,
             input_csv=None, id_column=None, mark_column=None, name_column=None, simplify_csv=False,
             fuzzy_id_match=100, penalty=0.0, input_encoding="utf-8", input_sep=",", output_decimal_sep=".",
-            name_match_threshold=70.0, use_llm_name_ocr=False, openrouter_name_model="google/gemini-3-flash-preview",
+            name_match_threshold=70.0, use_llm_name_ocr=False, openrouter_name_model="google/gemini-3.8-flash",
             only_analysis=False
         )
         handle_correct(args_correct)
@@ -593,7 +593,7 @@ def main():
     parser_correct_pexams.add_argument("--fuzzy-id-match", type=int, default=100, help="Fuzzy matching threshold (0-100).")
     parser_correct_pexams.add_argument("--name-match-threshold", type=float, default=70.0, help="Fuzzy matching threshold (0-100) for matching OCR names to --input-csv before analysis.")
     parser_correct_pexams.add_argument("--use-llm-name-ocr", action="store_true", help="Use OpenRouter vision OCR for student names before roster matching.")
-    parser_correct_pexams.add_argument("--openrouter-name-model", default="google/gemini-3-flash-preview", help="OpenRouter vision model for --use-llm-name-ocr.")
+    parser_correct_pexams.add_argument("--openrouter-name-model", default="google/gemini-3.8-flash", help="OpenRouter vision model for --use-llm-name-ocr.")
     parser_correct_pexams.add_argument("--input-encoding", default="utf-8", help="Encoding of input CSV.")
     parser_correct_pexams.add_argument("--input-sep", default=",", help="Separator for input CSV.")
     parser_correct_pexams.add_argument("--output-decimal-sep", default=".", help="Decimal separator for output marks.")

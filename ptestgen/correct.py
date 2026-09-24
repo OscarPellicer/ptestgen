@@ -66,7 +66,7 @@ def handle_correct(args):
             roster_sep=sep,
             name_match_threshold=getattr(args, "name_match_threshold", 70.0),
             use_llm_name_ocr=getattr(args, "use_llm_name_ocr", False),
-            openrouter_name_model=getattr(args, "openrouter_name_model", "google/gemini-3-flash-preview"),
+            openrouter_name_model=getattr(args, "openrouter_name_model", "google/gemini-3.8-flash"),
         )
     
     if not correction_success:

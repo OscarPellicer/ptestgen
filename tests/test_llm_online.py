@@ -19,7 +19,7 @@ def _requires_llm():
 def test_generation_review_evaluation_pipeline_with_real_llm(tmp_path):
     _requires_llm()
 
-    model = os.getenv("PTESTGEN_LLM_TEST_MODEL", "google/gemini-3-flash-preview")
+    model = os.getenv("PTESTGEN_LLM_TEST_MODEL", "google/gemini-3.8-flash")
     md_path = tmp_path / "questions.md"
     tsv_path = tmp_path / "questions.tsv"
     pipeline = PTestGenPipeline(

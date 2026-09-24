@@ -197,8 +197,8 @@ ptestgen generate path/to/presentation.pptx \
     --question-type mixed \
     --provider openrouter \
     --generator-model google/gemini-2.5-pro \
-    --reviewer-model google/gemini-2.5-flash \
-    --evaluator-model google/gemini-2.5-flash \
+    --reviewer-model google/gemini-3.8-flash \
+    --evaluator-model google/gemini-3.8-flash \
     --use-llm-review \
     --evaluate-initial \
     --evaluate-reviewed \
@@ -306,7 +306,7 @@ ptestgen correct pexams generated/topic_questions.md \
 - `--name-column <name>`: Column name for student names. Required with `--simplify-csv`.
 - `--name-match-threshold <0-100>`: When `--input-csv` and `--name-column` are provided, match scanned papers to the roster by OCR'd student name before analysis. If any scan is unmatched, correction stops and writes `student_matches.csv` for review.
 - `--use-llm-name-ocr`: Use OpenRouter vision OCR for student names before matching. Local OCR remains the default.
-- `--openrouter-name-model <model>`: Model used by `--use-llm-name-ocr` (default `google/gemini-3-flash-preview`).
+- `--openrouter-name-model <model>`: Model used by `--use-llm-name-ocr` (default `google/gemini-3.8-flash`).
 
 **Scoring Arguments:**
 
