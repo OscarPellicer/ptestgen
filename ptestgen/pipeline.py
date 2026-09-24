@@ -249,7 +249,7 @@ class PTestGenPipeline:
                exam_date: Optional[str] = None,
                exam_models: int = 1,
                language: str = 'en',
-               font_size: str = '11pt',
+               font_size: str = '9pt',
                columns: int = 1,
                generate_fakes: int = 0,
                generate_references: bool = False,
