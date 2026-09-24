@@ -426,7 +426,7 @@ def handle_export(args):
         exam_models=getattr(args, 'num_models', getattr(args, 'exam_models', 1)),
         language=getattr(args, 'lang', getattr(args, 'exam_language', config.DEFAULT_LANGUAGE)),
         # Safely access pexams-specific args
-        font_size=getattr(args, 'font_size', "11pt"),
+        font_size=getattr(args, 'font_size', "9pt"),
         columns=getattr(args, 'columns', 1),
         generate_fakes=getattr(args, 'generate_fakes', 0),
         generate_references=getattr(args, 'generate_references', False),
@@ -522,7 +522,7 @@ def main():
     parser_pexams.add_argument("--exam-course", help="Course name for the exam (optional).")
     parser_pexams.add_argument("--exam-date", help="Date of the exam (optional).")
     parser_pexams.add_argument("--columns", type=int, default=1, choices=[1, 2, 3], help="Number of columns for the questions (1, 2, or 3; default: 1).")
-    parser_pexams.add_argument("--font-size", default="10pt", help="Base font size for the exam (e.g., '10pt', '12px'; default: '10pt').")
+    parser_pexams.add_argument("--font-size", default="9pt", help="Base font size for the exam (e.g., '9pt', '12px'; default: '9pt').")
     parser_pexams.add_argument("--total-students", type=int, default=0, help="Total number of students for mass PDF generation (default: 0).")
     parser_pexams.add_argument("--extra-model-templates", type=int, default=0, help="Number of extra template sheets (answer sheet only) to generate per model (default: 0).")
     parser_pexams.add_argument("--lang", default=config.DEFAULT_LANGUAGE, help="Language for the answer sheet labels (e.g., 'en', 'es'; default: 'en').")

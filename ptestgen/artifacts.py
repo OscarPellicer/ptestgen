@@ -594,7 +594,7 @@ def synchronize_artifacts(records: List[QuestionRecord], md_questions: Dict[str,
             final_records.append(record)
 
     # Add new questions that were manually added to the markdown
-    new_ids = md_ids - record_ids
+    new_ids = [question_id for question_id in md_questions if question_id not in record_ids]
     for new_id in new_ids:
         logging.info(f"New question '{new_id}' added during manual review.")
         manual_content = md_questions[new_id]
@@ -608,6 +608,11 @@ def synchronize_artifacts(records: List[QuestionRecord], md_questions: Dict[str,
         )
         final_records.append(new_record)
         
+    # The edited Markdown defines the exam order (including manually added questions);
+    # removed records keep their relative order at the end.
+    md_position = {question_id: index for index, question_id in enumerate(md_questions)}
+    final_records.sort(key=lambda record: md_position.get(record.question_id, len(md_position)))
+
     logging.info(f"Synchronization complete. Final record count: {len(final_records)}")
     return final_records
 

@@ -445,7 +445,7 @@ This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`,
 *   `--exam-course <str>`: Course name for the exam (optional).
 *   `--exam-date <str>`: Date of the exam (optional).
 *   `--columns <int>`: Number of columns for the questions (1, 2, or 3; default: 1).
-*   `--font-size <str>`: Base font size for the exam (e.g., '10pt', '12px'; default: '10pt').
+*   `--font-size <str>`: Base font size for the exam (e.g., '9pt', '12px'; default: '9pt').
 *   `--total-students <int>`: Total number of students for mass PDF generation (default: 0).
 *   `--extra-model-templates <int>`: Number of extra template sheets (answer sheet only) to generate per model (default: 0).
 *   `--lang <str>`: Language for the answer sheet labels (e.g., 'en', 'es'; default: 'en').

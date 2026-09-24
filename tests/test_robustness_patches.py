@@ -90,3 +90,16 @@ def test_hard_timeout_retries_hung_calls(monkeypatch):
     assert provider._call_llm_with_retry(flaky) == "ok"
     assert len(calls) == 2
     assert time.time() - start < 3
+
+
+def test_synchronize_follows_markdown_order():
+    from ptestgen import artifacts
+    from ptestgen.schemas import QuestionRecord, QuestionStageContent
+
+    def content(name):
+        return mc(name, "correcta", ["a", "b", "c"])
+
+    records = [QuestionRecord(question_id=q, generated=QuestionStageContent(content=content(q))) for q in ["q1", "q2", "q3"]]
+    md_questions = {"q3": content("q3"), "new_b": content("new_b"), "q1": content("q1"), "new_a": content("new_a")}
+    synced = artifacts.synchronize_artifacts(records, md_questions)
+    assert [record.question_id for record in synced] == ["q3", "new_b", "q1", "new_a", "q2"]
