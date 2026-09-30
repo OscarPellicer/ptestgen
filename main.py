@@ -381,11 +381,17 @@ def handle_export(args):
 
     # --- Read Artifacts ---
     md_path, tsv_path = artifacts.get_artifact_paths(args.input_md_path)
-    if not os.path.exists(md_path) or not os.path.exists(tsv_path):
-        logging.error(f"Input file '{args.input_md_path}' must contain both '{artifacts.QUESTIONS_FILENAME}' and '{artifacts.METADATA_FILENAME}'.")
+    if not os.path.exists(md_path):
+        logging.error(f"Questions markdown file not found: {md_path}")
         sys.exit(1)
-        
-    records = artifacts.read_metadata_tsv(tsv_path)
+
+    # A hand-written markdown has no metadata yet: start from no records and let the
+    # synchronization below add every question as new; the TSV is written at the end.
+    if os.path.exists(tsv_path):
+        records = artifacts.read_metadata_tsv(tsv_path)
+    else:
+        logging.info(f"Metadata file not found, it will be created from the markdown: {tsv_path}")
+        records = []
     manually_edited_questions = artifacts.read_questions_md(md_path)
 
     # --- Synchronize Artifacts ---

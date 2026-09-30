@@ -188,7 +188,7 @@ def write_questions_md(records: List[QuestionRecord], output_path: str):
                 if content.points != 1.0:
                     attrs.append(f"points={content.points:g}")
                 if content.is_open_answer:
-                    attrs.append(f"lines={content.answer_lines}")
+                    attrs.append(f"lines={content.answer_lines:g}")
                 attr_text = f" {{{' '.join(attrs)}}}" if attrs else ""
                 f.write(f"## {record.question_id}{attr_text}\n")
                 
@@ -260,7 +260,7 @@ def _deserialize_record(row: Dict[str, str]) -> QuestionRecord:
                 explanation=answers.get('explanation') or None,
                 expected_answer=answers.get('expected_answer') or None,
                 rubric=answers.get('rubric') or None,
-                answer_lines=int(answers.get('answer_lines') or 8),
+                answer_lines=float(answers.get('answer_lines') or 8),
             )
         return None
 
@@ -451,7 +451,7 @@ def read_questions_md(path: str) -> Dict[str, QuestionContent]:
         except ValueError:
             points = 1.0
         try:
-            answer_lines = int(attrs.get("lines", 8))
+            answer_lines = float(attrs.get("lines", 8))
         except ValueError:
             answer_lines = 8
 

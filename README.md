@@ -243,6 +243,8 @@ Important notes:
 
 After you have manually reviewed and saved the `questions.md` file, use this command to generate the final exam files. The export command is structured with subparsers for each format.
 
+The `questions.md` file can also be written by hand, without running `generate`: if its `metadata.tsv` does not exist yet, `export` creates it from the Markdown.
+
 **1. Export to Wooclap with shuffling:**
 ```bash
 ptestgen export wooclap generated/topic_questions.md \
