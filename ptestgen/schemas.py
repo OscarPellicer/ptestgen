@@ -21,7 +21,7 @@ class QuestionContent(BaseModel):
     explanation: Optional[str] = None
     expected_answer: Optional[str] = None
     rubric: Optional[str] = None
-    answer_lines: int = 8
+    answer_lines: float = 8  # may be fractional, e.g. 8.5
     # Path from the blockquote image line `> ![...](path)` in questions.md; also mirrored on QuestionRecord.image_reference for TSV export.
     image_reference: Optional[str] = None
 
