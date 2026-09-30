@@ -442,7 +442,8 @@ def handle_export(args):
         max_image_width=getattr(args, 'max_image_width', None),
         max_image_height=getattr(args, 'max_image_height', None),
         custom_header=getattr(args, 'custom_header', None),
-        mc_total_points=getattr(args, 'mc_total_points', None)
+        mc_total_points=getattr(args, 'mc_total_points', None),
+        fill_answer_space=getattr(args, 'fill_answer_space', False)
     )
 
     # --- Save Updated Metadata ---
@@ -537,6 +538,7 @@ def main():
     parser_pexams.add_argument("--generate-references", action="store_true", help="If set, generates a reference scan with the correct answers marked for each model.")
     parser_pexams.add_argument("--custom-header", help="Markdown string or path to a Markdown file to insert before the questions (e.g., instructions).")
     parser_pexams.add_argument("--mc-total-points", type=float, default=None, help="Total points for all multiple-choice questions, split evenly (open questions keep their own points).")
+    parser_pexams.add_argument("--fill-answer-space", action="store_true", help="Grow the open-answer boxes of each page to use the free space left at its bottom.")
 
     # Rexams subparser
     export_subparsers.add_parser("rexams", parents=[common_parser, export_common_parser, exam_parser], help="Export to R/exams format.")
