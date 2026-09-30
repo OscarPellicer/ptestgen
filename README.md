@@ -455,6 +455,7 @@ This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`,
 *   `--generate-fakes <int>`: Generates a number of simulated scans with fake answers for testing the correction process (default: 0).
 *   `--generate-references`: If set, generates a reference scan with the correct answers marked for each model.
 *   `--custom-header <str>`: Markdown string or path to a Markdown file to insert before the questions (e.g., instructions).
+*   `--fill-answer-space`: Grow the open-answer boxes of each page so they use the free space left at its bottom.
 
 For more information on the available arguments for `pexams`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ptestgen"
-version = "0.2.3"
+version = "0.3.0"
 authors = [
   { name="PTestGen Team (Oscar)", email="oscar.pellicer@uv.es" },
 ]
@@ -40,7 +40,7 @@ dependencies = [
     "pdf2image>=1.16.0",
     "opencv-python>=4.7.0",
     "tqdm>=4.62.0",
-    "pexams>=0.12.0",
+    "pexams>=0.13.0",
     "pevaluate>=0.1.8",
     "openpyxl>=3.0.0",
 ]

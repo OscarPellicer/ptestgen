@@ -60,8 +60,7 @@ def test_artifacts_round_trip_fractional_answer_lines(tmp_path):
 
 def test_export_creates_metadata_tsv_from_hand_written_markdown(tmp_path):
     md_path = tmp_path / "exam.md"
-    # Whole lines: fractional values need pexams > 0.12.2, the version CI installs from PyPI.
-    md_path.write_text(OPEN_QUESTION_MD.replace("lines=8.5", "lines=8"), encoding="utf-8")
+    md_path.write_text(OPEN_QUESTION_MD, encoding="utf-8")
 
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "main.py"), "export", "gift", str(md_path)],
@@ -75,4 +74,4 @@ def test_export_creates_metadata_tsv_from_hand_written_markdown(tmp_path):
     assert tsv_path.exists()
     records = {rec.question_id: rec for rec in artifacts.read_metadata_tsv(str(tsv_path))}
     assert set(records) == {"open_1", "mc_1"}
-    assert records["open_1"].get_latest_content().answer_lines == 8
+    assert records["open_1"].get_latest_content().answer_lines == 8.5

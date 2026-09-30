@@ -261,7 +261,8 @@ class PTestGenPipeline:
                max_image_width: Optional[int] = None,
                max_image_height: Optional[int] = None,
                custom_header: Optional[str] = None,
-               mc_total_points: Optional[float] = None
+               mc_total_points: Optional[float] = None,
+               fill_answer_space: bool = False
                ):
         """
         Runs the export part of the pipeline.
@@ -352,6 +353,7 @@ class PTestGenPipeline:
                     custom_header=custom_header,
                     markdown_asset_base_dir=os.path.dirname(os.path.abspath(input_md_path)),
                     mc_total_points=mc_total_points,
+                    fill_answer_space=fill_answer_space,
                 )
                 print(f"Pexams outputs generated in: {os.path.abspath(output_dir)}")
 
