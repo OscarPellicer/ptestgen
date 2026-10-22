@@ -67,6 +67,10 @@ def handle_correct(args):
             name_match_threshold=getattr(args, "name_match_threshold", 70.0),
             use_llm_name_ocr=getattr(args, "use_llm_name_ocr", False),
             openrouter_name_model=getattr(args, "openrouter_name_model", "google/gemini-3.8-flash"),
+            id_reader="llm" if getattr(args, "use_llm_name_ocr", False) else getattr(args, "id_reader", "llm"),
+            id_reader_model=getattr(args, "openrouter_name_model", "google/gemini-3.8-flash") if getattr(args, "use_llm_name_ocr", False) else getattr(args, "id_reader_model", "claude-opus-5-5"),
+            id_reader_effort=getattr(args, "id_reader_effort", "low") or None,
+            api_key_env=getattr(args, "api_key_env", None),
         )
     
     if not correction_success:

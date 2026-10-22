@@ -443,7 +443,8 @@ def handle_export(args):
         max_image_height=getattr(args, 'max_image_height', None),
         custom_header=getattr(args, 'custom_header', None),
         mc_total_points=getattr(args, 'mc_total_points', None),
-        fill_answer_space=getattr(args, 'fill_answer_space', False)
+        fill_answer_space=getattr(args, 'fill_answer_space', False),
+        show_points=getattr(args, 'show_points', "auto")
     )
 
     # --- Save Updated Metadata ---
@@ -539,6 +540,7 @@ def main():
     parser_pexams.add_argument("--custom-header", help="Markdown string or path to a Markdown file to insert before the questions (e.g., instructions).")
     parser_pexams.add_argument("--mc-total-points", type=float, default=None, help="Total points for all multiple-choice questions, split evenly (open questions keep their own points).")
     parser_pexams.add_argument("--fill-answer-space", action="store_true", help="Grow the open-answer boxes of each page to use the free space left at its bottom.")
+    parser_pexams.add_argument("--show-points", choices=["auto", "always", "never"], default="auto", help="Print each question's points, e.g. [1.5 pt], after its number. 'auto' (default) prints them when there are open-answer questions or questions of different value.")
 
     # Rexams subparser
     export_subparsers.add_parser("rexams", parents=[common_parser, export_common_parser, exam_parser], help="Export to R/exams format.")
@@ -589,7 +591,7 @@ def main():
         parents=[common_parser, _correct_common],
         help="Correct scanned pexams answer sheets.",
     )
-    parser_correct_pexams.add_argument("--input-path", required=False, help="Path to the scanned PDF or folder of images.")
+    parser_correct_pexams.add_argument("--input-path", nargs="+", required=False, help="One or more scanned PDFs and/or folders of images or PDFs, read in the order given as one batch (files in a folder are sorted by name).")
     parser_correct_pexams.add_argument("--exam-dir", required=True, help="Path to the directory containing exam model JSONs.")
     parser_correct_pexams.add_argument("--void-questions", default=None, help="Comma-separated list of question numbers to void.")
     parser_correct_pexams.add_argument("--void-questions-nicely", default=None, help="Comma-separated list of question IDs to void nicely.")
@@ -600,7 +602,11 @@ def main():
     parser_correct_pexams.add_argument("--simplify-csv", action="store_true", help="Simplify the output CSV.")
     parser_correct_pexams.add_argument("--fuzzy-id-match", type=int, default=100, help="Fuzzy matching threshold (0-100).")
     parser_correct_pexams.add_argument("--name-match-threshold", type=float, default=70.0, help="Fuzzy matching threshold (0-100) for matching OCR names to --input-csv before analysis.")
-    parser_correct_pexams.add_argument("--use-llm-name-ocr", action="store_true", help="Use OpenRouter vision OCR for student names before roster matching.")
+    parser_correct_pexams.add_argument("--use-llm-name-ocr", action="store_true", help="Deprecated: same as --id-reader llm --id-reader-model <--openrouter-name-model>.")
+    parser_correct_pexams.add_argument("--id-reader", choices=["llm", "trocr"], default="llm", help="Read the model, ID and name boxes with a vision LLM (default) or local TrOCR.")
+    parser_correct_pexams.add_argument("--id-reader-model", default="claude-opus-5-5", help="Model for --id-reader llm. Bare 'claude-...' ids use the Anthropic API; others use OpenRouter.")
+    parser_correct_pexams.add_argument("--id-reader-effort", default="low", help="Reasoning effort for --id-reader llm (empty for the provider default).")
+    parser_correct_pexams.add_argument("--api-key-env", default=None, help="Environment variable holding the API key (default: ANTHROPIC_API_KEY or OPENROUTER_API_KEY).")
     parser_correct_pexams.add_argument("--openrouter-name-model", default="google/gemini-3.8-flash", help="OpenRouter vision model for --use-llm-name-ocr.")
     parser_correct_pexams.add_argument("--input-encoding", default="utf-8", help="Encoding of input CSV.")
     parser_correct_pexams.add_argument("--input-sep", default=",", help="Separator for input CSV.")

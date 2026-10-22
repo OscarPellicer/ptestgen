@@ -292,7 +292,7 @@ ptestgen correct pexams generated/topic_questions.md \
     [OPTIONS]
 ```
 
-- The `--input-path` can be a single PDF file or a folder of images (PNG, JPG).
+- The `--input-path` can be a PDF file or a folder of images (PNG, JPG) or PDFs. If the batch was scanned into several PDFs, pass them all (`--input-path scan1.pdf scan2.pdf scan3.pdf`) or their folder: pages are read in the order given (files in a folder sorted by name) as one batch, so an exam may even be split between two PDFs.
 - The `--exam-dir` must contain the `exam_model_*_questions.json` files generated alongside the exam PDFs.
 
 **Mark Filling Arguments:**
@@ -307,8 +307,11 @@ ptestgen correct pexams generated/topic_questions.md \
 - `--simplify-csv`: If set, the output CSV will only keep `--id-column`, `--name-column`, and `--mark-column`.
 - `--name-column <name>`: Column name for student names. Required with `--simplify-csv`.
 - `--name-match-threshold <0-100>`: When `--input-csv` and `--name-column` are provided, match scanned papers to the roster by OCR'd student name before analysis. If any scan is unmatched, correction stops and writes `student_matches.csv` for review.
-- `--use-llm-name-ocr`: Use OpenRouter vision OCR for student names before matching. Local OCR remains the default.
-- `--openrouter-name-model <model>`: Model used by `--use-llm-name-ocr` (default `google/gemini-3.8-flash`).
+- `--id-reader {llm,trocr}`: How to read the model, student-ID and name boxes. `llm` (default) sends the three box crops of each answer sheet to a vision LLM in one call; `trocr` uses the local TrOCR model, which is also the fallback when no API key is set or a call fails. Without `--input-csv`, each exam is identified by the ID and name read from it.
+- `--id-reader-model <model>`: Model for `--id-reader llm` (default `claude-opus-5-5` at low effort, about $0.002 per exam: it misread the fewest IDs and names in our tests, ahead of `claude-sonnet-5-5` and `claude-haiku-5-5`). Bare `claude-...` ids use the Anthropic API (`ANTHROPIC_API_KEY`); any other name (e.g. `google/gemini-3.8-flash`) uses OpenRouter (`OPENROUTER_API_KEY`).
+- `--id-reader-effort <low|medium|high>`: Reasoning effort (default `low`).
+- `--api-key-env <VAR>`: Read the API key from another environment variable.
+- `--use-llm-name-ocr`, `--openrouter-name-model`: Deprecated aliases of `--id-reader llm --id-reader-model <model>`.
 
 **Scoring Arguments:**
 
@@ -456,6 +459,7 @@ This command uses subparsers for each format (`pexams`, `wooclap`, `moodle_xml`,
 *   `--generate-references`: If set, generates a reference scan with the correct answers marked for each model.
 *   `--custom-header <str>`: Markdown string or path to a Markdown file to insert before the questions (e.g., instructions).
 *   `--fill-answer-space`: Grow the open-answer boxes of each page so they use the free space left at its bottom.
+*   `--show-points {auto,always,never}`: Print each question's points after its number, e.g. `[1.5 pt]`. `auto` (default) prints them only when the exam has open-answer questions or questions of different value. The value printed is the question's own points (after `--mc-total-points`), not rescaled.
 
 For more information on the available arguments for `pexams`, please visit the `pexams` repository: [https://github.com/OscarPellicer/pexams](https://github.com/OscarPellicer/pexams)
 
