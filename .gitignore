@@ -204,3 +204,6 @@ build/
 generated/
 !generated/all.md
 generated_test/
+
+# Local launch configurations (paths to real courses)
+.vscode/
