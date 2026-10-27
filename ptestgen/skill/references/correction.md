@@ -87,7 +87,7 @@ Tell the teacher, with these pictures if useful:
   ![Feedback types](https://raw.githubusercontent.com/OscarPellicer/pevaluate/refs/heads/main/media/moodle.png)
 - **Submissions → Actions:**
   - *Download all submissions*, with "Download submissions in folders" ticked: the zip for `pevaluate <folder>`.
-  - *Download grading worksheet*: the CSV for `pevaluate moodle-csv`; afterwards *Upload grading worksheet*.
+  - *Download grading worksheet*: the CSV for `pevaluate moodle-csv`; afterwards *Upload grading worksheet*, ticking *Allow updating records that have been modified more recently in Moodle than in the spreadsheet* (otherwise the rows of students who submitted are skipped).
   - *Upload feedback files in a zip*: the zip from `pexams moodle-feedback-zip`.
   ![Submissions → Actions](https://raw.githubusercontent.com/OscarPellicer/pevaluate/refs/heads/main/media/moodle_submissions_actions.png)
 - **Gradebook** (course grades → export to Excel): the roster for `combine-marks`; import the filled copy back through the gradebook import.
