@@ -19,3 +19,4 @@
 - **Grading by completeness**: say in the rubric which sections are optional and which code exists only after a student's choice (it cannot be required).
 - **Rubric changes after grading**: rerun only what changed (`--force-regrade` on a copy of the folder), and keep the previous folder for traceability.
 - **Blank-paper exams** must have the same number of pages each for `exam-free` (`--pages-per-exam`); split odd ones.
+- **Moodle "Confirm zip upload" / "No changes" ("Confirma la càrrega del zip" / "Sense canvis")**: a marks CSV was uploaded with *Upload multiple feedback files in a zip*, which only takes attachment files. Marks and comments go through *Upload grading worksheet* ("Penja el full de qualificacions") on the Submissions page.
