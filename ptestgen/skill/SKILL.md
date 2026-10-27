@@ -31,12 +31,13 @@ Do this yourself and tell the teacher what you did.
 1. **Python environment.** Look for one that already has the tools (`pip show ptestgen`, `conda env list`). Otherwise create one (Python 3.11 recommended) and `pip install ptestgen` (installs pexams and pevaluate). Record the folder of its executables as `environment.bin` in the course record.
 2. **Browser for PDFs.** `python -m playwright install chromium`.
 3. **Poppler** (reads scanned PDFs): check `pdftoppm -v`. If missing: macOS `brew install poppler`; Linux `sudo apt install poppler-utils`; Windows or no admin rights `conda install -c conda-forge poppler`.
-4. **Smoke test:** `pexams test --output-dir <temporary folder>` generates, simulates scans and corrects them.
+4. **PDF check:** `pexams generate --input-file sample_test.md --to pexams --output-dir <tmp> --num-models 2 --generate-fakes 4` (the bundled sample) makes the PDFs and simulated scans. (`pexams test` only works from a clone of the repository: it runs its test suite.)
 5. **API keys.** Explain to the teacher:
    - Grading and reading scans use an LLM. Recommended: Claude through the Anthropic API (a key from console.anthropic.com → API keys, with some prepaid credit). Other models go through OpenRouter (`OPENROUTER_API_KEY`).
    - They write the key into a `.env` file (e.g. `ANTHROPIC_API_KEY=...`) in a private folder outside any repository; you create the empty file and tell them where. Any variable name works (`--api-key-env NAME`).
    - Check that it loads without printing it: `python -c "import os; from dotenv import load_dotenv; load_dotenv('<path>'); print(bool(os.getenv('<NAME>')))"`.
    - Record `environment.env_file` and `environment.api_key_env`.
+   - Then finish the smoke test: `pexams correct --input-path <tmp>/simulated_scans --exam-dir <tmp> --output-dir <tmp>/corr --api-key-env <NAME>` (a few cents). Every page should be read with its ID and name. Correction needs the key (or `pip install "pexams[trocr]"` and `--id-reader trocr`, less reliable).
 6. **Models.** Show the teacher the table in `references/models-and-costs.md` (our measurements are limited: one course, two sessions) and ask them to choose. Default: Claude Opus 5.5 at medium effort for grading and at low effort for reading the exam headers. Record the choice in `models`.
 7. **Course record:** `ptestgen course init --name "<course>" --year <year>` in the course folder, then fill in languages, LMS, roster (gradebook export) and policy as you learn them.
 
