@@ -1,11 +1,6 @@
-import importlib
-import time
-
 import pytest
 
-from ptestgen import config
 from ptestgen.agents.reviewer import review_corrupts_characters
-from ptestgen.llm_providers.base import LLMProvider
 from ptestgen.schemas import QuestionContent
 
 
@@ -45,51 +40,6 @@ def test_accepts_legitimate_edits():
         "distractors": ["Porque altera la morfología léxica", "Porque penaliza errores", "Porque evalúa dos celdas contiguas"],
     })
     assert not review_corrupts_characters(ORIGINAL, reviewed)
-
-
-def test_api_keys_are_cleaned(monkeypatch):
-    monkeypatch.setenv("OPENROUTER_API_KEY", '"sk-or-v1-abc"\r')
-    reloaded = importlib.reload(config)
-    try:
-        assert reloaded.OPENROUTER_API_KEY == "sk-or-v1-abc"
-    finally:
-        monkeypatch.delenv("OPENROUTER_API_KEY")
-        importlib.reload(config)
-
-
-class _DummyProvider(LLMProvider):
-    def _initialize_client(self):
-        return None
-
-    def generate_questions_from_text(self, *args, **kwargs):
-        return None
-
-    def generate_question_from_image(self, *args, **kwargs):
-        return None
-
-    def review_question(self, *args, **kwargs):
-        return None
-
-    def evaluate_question(self, *args, **kwargs):
-        return None
-
-
-def test_hard_timeout_retries_hung_calls(monkeypatch):
-    monkeypatch.setattr(config, "LLM_HARD_TIMEOUT", 0.2)
-    monkeypatch.setattr(config, "RETRY_DELAY_BASE", 0)
-    calls = []
-
-    def flaky():
-        calls.append(1)
-        if len(calls) == 1:
-            time.sleep(5)  # simulates a response that never finishes
-        return "ok"
-
-    provider = _DummyProvider("dummy", {})
-    start = time.time()
-    assert provider._call_llm_with_retry(flaky) == "ok"
-    assert len(calls) == 2
-    assert time.time() - start < 3
 
 
 def test_synchronize_follows_markdown_order():

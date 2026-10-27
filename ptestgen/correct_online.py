@@ -1,4 +1,4 @@
-﻿"""
+"""
 Handlers for 'ptestgen correct wooclap' and 'ptestgen correct moodle'.
 
 These wrap the pexams online_results parsers and analysis pipeline, then
@@ -19,7 +19,7 @@ from Levenshtein import ratio as levenshtein_ratio
 from . import artifacts, config
 from .pipeline import PTestGenPipeline
 from .pexams_converter import convert_ptestgen_to_pexam
-from .schemas import QuestionRecord, QuestionStage
+from .schemas import QuestionStage
 
 from pexams import analysis, utils as pexams_utils
 from pexams.io.online_results import parse_wooclap_results, parse_moodle_results

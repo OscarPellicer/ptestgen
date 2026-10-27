@@ -1,4 +1,4 @@
-﻿import os
+import os
 import csv
 import json
 import logging
@@ -8,6 +8,7 @@ import string
 from typing import List, Dict, Optional
 
 from Levenshtein import distance
+from pexams.io.md_converter import _parse_float_attr, parse_questions_markdown
 
 from .schemas import QuestionRecord, QuestionStageContent, QuestionContent, ChangeMetrics, EvaluationData
 
@@ -360,163 +361,41 @@ def read_metadata_tsv(path: str) -> List[QuestionRecord]:
     return records
 
 
-def _parse_question_header(header_line: str) -> tuple[str, Dict[str, str]]:
-    match = re.match(r'^##\s+(.+)', header_line)
-    if not match:
-        return "", {}
-    raw_header = match.group(1).strip()
-    attrs: Dict[str, str] = {}
-    attr_match = re.search(r'\{([^}]*)\}\s*$', raw_header)
-    if attr_match:
-        raw_header = raw_header[:attr_match.start()].strip()
-        for token in attr_match.group(1).split():
-            if "=" in token:
-                key, value = token.split("=", 1)
-                attrs[key.strip().lower()] = value.strip().strip('"\'')
-    return raw_header, attrs
-
-
-def _normalize_question_type(raw_type: Optional[str]) -> str:
-    if not raw_type:
-        return "multiple_choice"
-    normalized = raw_type.strip().lower().replace("-", "_")
-    if normalized in {"open", "open_answer", "short_answer", "essay", "free_text"}:
-        return "open_answer"
-    return "multiple_choice"
-
-
-def _split_open_answer_sections(lines: List[str]) -> tuple[str, Optional[str], Optional[str]]:
-    sections = {"question": [], "expected_answer": [], "rubric": []}
-    current = "question"
-    markers = {
-        "**expected answer:**": "expected_answer",
-        "**expected_answer:**": "expected_answer",
-        "**rubric:**": "rubric",
-    }
-    for line in lines:
-        marker = line.strip().lower()
-        if marker in markers:
-            current = markers[marker]
-            continue
-        sections[current].append(line)
-    return (
-        "\n".join(sections["question"]).strip(),
-        "\n".join(sections["expected_answer"]).strip() or None,
-        "\n".join(sections["rubric"]).strip() or None,
-    )
-
 def read_questions_md(path: str) -> Dict[str, QuestionContent]:
-    """Parses a simplified Markdown file into a dictionary of QuestionContent objects."""
+    """Parses a simplified Markdown file into a dictionary of QuestionContent objects.
+
+    The format is parsed by pexams (``parse_questions_markdown``), so ptestgen and
+    ``pexams generate`` read the same file the same way.
+    """
     if not os.path.exists(path):
         logging.error(f"Questions markdown file not found: {path}")
         return {}
-        
-    questions: Dict[str, QuestionContent] = {}
-    
-    # Split the content by the new question header '## ' that appears at the start of a line
+
     with open(path, 'r', encoding='utf-8') as f:
         content = f.read()
 
-    # Remove HTML comments to prevent parsing errors
-    content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
-
-    question_blocks = re.split(r'(?=^## )', content, flags=re.MULTILINE)
-
-    for block in question_blocks:
-        block = block.strip()
-        if not block.startswith("##"):
-            continue
-
-        lines = block.split('\n')
-        
-        header_line = lines[0]
-        question_id, attrs = _parse_question_header(header_line)
-        if not question_id:
-            continue
-        
-        content_lines = lines[1:]
-        
-        # Check for and extract a quoted image line
-        image_path = None
-        if content_lines and content_lines[0].strip().startswith('>'):
-            img_match = re.search(r'!\[.*\]\((.*)\)', content_lines[0])
-            if img_match:
-                image_path = img_match.group(1).strip()
-                # Remove the image line from the content
-                content_lines = content_lines[1:]
-
-        question_type = _normalize_question_type(attrs.get("type"))
-        try:
-            points = float(attrs.get("points", 1.0))
-        except ValueError:
-            points = 1.0
-        try:
-            answer_lines = float(attrs.get("lines", 8))
-        except ValueError:
-            answer_lines = 8
-
-        if question_type == "open_answer":
-            question_text, expected_answer, rubric = _split_open_answer_sections(content_lines)
-            if not question_text:
-                logging.warning(f"Open-answer question ID '{question_id}' has no question text. Skipping.")
-                continue
-            questions[question_id] = QuestionContent(
-                text=question_text,
-                question_type="open_answer",
-                points=points,
-                expected_answer=expected_answer,
-                rubric=rubric,
-                answer_lines=answer_lines,
-                image_reference=image_path,
-            )
-            continue
-
-        first_answer_idx = -1
-        for i, line in enumerate(content_lines):
-            if line.strip().startswith(('*', '-', '1.')):
-                first_answer_idx = i
-                break
-        
-        if first_answer_idx == -1:
-            logging.warning(f"Could not find any answers for question ID '{question_id}'. Skipping.")
-            continue
-            
-        question_text = "\n".join(content_lines[:first_answer_idx]).strip()
-        
-        answer_and_exp_lines = content_lines[first_answer_idx:]
-        
-        answers = []
-        explanation_lines = []
-        is_parsing_exp = False
-        
-        for line in answer_and_exp_lines:
-            stripped = line.strip()
-            if stripped.lower().startswith("**explanation:**"):
-                is_parsing_exp = True
-                continue
-            
-            if is_parsing_exp:
-                explanation_lines.append(line)
-                continue
-            
-            if stripped.startswith(('* ', '- ')):
-                answers.append(re.sub(r'^[\*\-]\s*', '', stripped))
-            elif stripped.startswith('1. '):
-                 answers.append(re.sub(r'^\d+\.\s*', '', stripped))
-
-        if not answers:
-            continue
-
-        questions[question_id] = QuestionContent(
-            text=question_text,
-            question_type="multiple_choice",
-            points=points,
-            correct_answer=answers[0],
-            distractors=answers[1:],
-            explanation="\n".join(explanation_lines).strip() or None,
-            image_reference=image_path
+    questions: Dict[str, QuestionContent] = {}
+    for parsed in parse_questions_markdown(content):
+        common = dict(
+            text=parsed.text,
+            question_type=parsed.question_type,
+            points=_parse_float_attr(parsed.attrs, "points", 1.0) or 1.0,
         )
-        
+        if parsed.question_type == "open_answer":
+            questions[parsed.id] = QuestionContent(
+                expected_answer=parsed.expected_answer,
+                rubric=parsed.rubric,
+                answer_lines=parsed.answer_area.lines,
+                **common,
+            )
+        else:
+            questions[parsed.id] = QuestionContent(
+                correct_answer=parsed.options[0],
+                distractors=parsed.options[1:],
+                explanation=parsed.explanation,
+                **common,
+            )
+
     return questions
 
 def calculate_changes(old_stage: QuestionStageContent, new_stage: QuestionStageContent) -> ChangeMetrics:

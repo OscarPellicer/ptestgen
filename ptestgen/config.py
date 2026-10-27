@@ -1,95 +1,61 @@
 # Configuration settings for PTestGen
 
 import os
-from pathlib import Path
-from dotenv import load_dotenv
 
-def load_project_dotenv():
-    """Load .env files from the current workspace and package parents."""
-    seen = set()
-    for start in (Path.cwd(), Path(__file__).resolve()):
-        folder = start if start.is_dir() else start.parent
-        for candidate in (folder, *folder.parents):
-            if candidate in seen:
-                continue
-            seen.add(candidate)
-            load_dotenv(candidate / ".env")
+from pexams.env import load_project_dotenv
 
-
-# Load environment variables from project .env files.
-load_project_dotenv()
+# Load environment variables from project .env files (current folder, ptestgen and their parents).
+load_project_dotenv(__file__)
 
 # --- LLM Configuration ---
-# Select the provider: "openai", "google", "anthropic", "replicate", "stub"
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter")
+# Calls go through pexams.llm.LLMClient (shared with pexams and pevaluate). The model id decides
+# the route: a bare Anthropic id ("claude-sonnet-5-5") calls the Anthropic API, any other id
+# ("google/gemini-3.1-pro-preview", "anthropic/claude-sonnet-5-5") goes to OpenRouter.
+# --provider (or LLM_PROVIDER) picks the default models below: "openrouter", "anthropic" or "stub"
+# (placeholder questions, no API calls; for tests).
+SUPPORTED_PROVIDERS = ("openrouter", "anthropic", "stub")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter").strip().lower()
+if LLM_PROVIDER not in SUPPORTED_PROVIDERS:
+    import logging as _logging
 
-def _clean_key(name):
-    """Reads an API key, stripping whitespace, CR (Windows .env files) and quotes.
-    A trailing CR makes httpx reject the Authorization header and the traceback leaks the key."""
-    value = os.getenv(name)
-    if value is None:
-        return None
-    return value.strip().strip('"\'').strip() or None
+    _logging.warning(f"LLM_PROVIDER={LLM_PROVIDER!r} is no longer supported (use openrouter, anthropic or stub); using openrouter.")
+    LLM_PROVIDER = "openrouter"
 
-
-# API Keys from environment variables
-OPENAI_API_KEY = _clean_key("OPENAI_API_KEY")
-GOOGLE_API_KEY = _clean_key("GOOGLE_API_KEY")
-ANTHROPIC_API_KEY = _clean_key("ANTHROPIC_API_KEY")
-REPLICATE_API_TOKEN = _clean_key("REPLICATE_API_TOKEN")
-OPENROUTER_API_KEY = _clean_key("OPENROUTER_API_KEY")
-
+# Environment variable holding each route's API key. Override the name to reuse another variable,
+# e.g. PTESTGEN_ANTHROPIC_API_KEY_ENV=CLAUDE_KEY.
 PROVIDER_API_KEY_MAP = {
-    "openai": "OPENAI_API_KEY",
-    "google": "GOOGLE_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "replicate": "REPLICATE_API_TOKEN",
-    "openrouter": "OPENROUTER_API_KEY",
-    # ollama is local, no key needed
+    "anthropic": os.getenv("PTESTGEN_ANTHROPIC_API_KEY_ENV", "ANTHROPIC_API_KEY"),
+    "openrouter": os.getenv("PTESTGEN_OPENROUTER_API_KEY_ENV", "OPENROUTER_API_KEY"),
 }
-
-# Ollama Configuration
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-
 
 # --- Model Selection ---
-# Define models for each provider (using requested models or sensible defaults)
-# Check provider documentation for the latest/most appropriate model names.
 GENERATOR_MODEL_MAP = {
-    "openai": os.getenv("OPENAI_GENERATOR_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_GENERATOR_MODEL", "gemini-3.1-pro-preview"),
-    "anthropic": os.getenv("ANTHROPIC_GENERATOR_MODEL", "claude-sonnet-4-5"),
-    "replicate": os.getenv("REPLICATE_GENERATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
     "openrouter": os.getenv("OPENROUTER_GENERATOR_MODEL", "google/gemini-3.1-pro-preview"),
-    "ollama": os.getenv("OLLAMA_GENERATOR_MODEL", "gemma3:4b"),
-    "stub": "stub-generator-model"
+    "anthropic": os.getenv("ANTHROPIC_GENERATOR_MODEL", "claude-sonnet-5-5"),
+    "stub": "stub-generator-model",
 }
-
-REVIEWER_MODEL_MAP = { # Potentially use a cheaper model for review
-    "openai": os.getenv("OPENAI_REVIEWER_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_REVIEWER_MODEL", "gemini-3.8-flash"),
-    "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-haiku-4-5"), 
-    "replicate": os.getenv("REPLICATE_REVIEWER_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
+REVIEWER_MODEL_MAP = {
     "openrouter": os.getenv("OPENROUTER_REVIEWER_MODEL", "google/gemini-3.8-flash"),
-    "ollama": os.getenv("OLLAMA_REVIEWER_MODEL", "gemma3:4b"),
-    "stub": "stub-reviewer-model"
+    "anthropic": os.getenv("ANTHROPIC_REVIEWER_MODEL", "claude-haiku-5-5"),
+    "stub": "stub-reviewer-model",
 }
-
-EVALUATOR_MODEL_MAP = { # Potentially use a cheaper model for review
-    "openai": os.getenv("OPENAI_EVALUATOR_MODEL", "gpt-4o"),
-    "google": os.getenv("GOOGLE_EVALUATOR_MODEL", "gemini-3.8-flash"),
-    "anthropic": os.getenv("ANTHROPIC_EVALUATOR_MODEL", "claude-haiku-4-5"), 
-    "replicate": os.getenv("REPLICATE_EVALUATOR_MODEL", "unsloth/meta-llama-3.3-70b-instruct"),
+EVALUATOR_MODEL_MAP = {
     "openrouter": os.getenv("OPENROUTER_EVALUATOR_MODEL", "google/gemini-3.8-flash"),
-    "ollama": os.getenv("OLLAMA_EVALUATOR_MODEL", "gemma3:4b"),
-    "stub": "stub-evaluator-model"
+    "anthropic": os.getenv("ANTHROPIC_EVALUATOR_MODEL", "claude-haiku-5-5"),
+    "stub": "stub-evaluator-model",
 }
 
+# Models for the selected provider.
+GENERATOR_MODEL = GENERATOR_MODEL_MAP[LLM_PROVIDER]
+REVIEWER_MODEL = REVIEWER_MODEL_MAP[LLM_PROVIDER]
+EVALUATOR_MODEL = EVALUATOR_MODEL_MAP[LLM_PROVIDER]
 
-# Get the actual model names based on the selected provider
-GENERATOR_MODEL = GENERATOR_MODEL_MAP.get(LLM_PROVIDER, "stub-generator-model")
-REVIEWER_MODEL = REVIEWER_MODEL_MAP.get(LLM_PROVIDER, "stub-reviewer-model")
-EVALUATOR_MODEL = EVALUATOR_MODEL_MAP.get(LLM_PROVIDER, "stub-evaluator-model")
+# Optional effort per agent (low, medium, high, xhigh, max); empty = the model's default
+# (Gemini Flash on OpenRouter then gets "minimal"). PTESTGEN_EFFORT sets all three.
+_EFFORT = os.getenv("PTESTGEN_EFFORT") or None
+GENERATOR_EFFORT = os.getenv("PTESTGEN_GENERATOR_EFFORT") or _EFFORT
+REVIEWER_EFFORT = os.getenv("PTESTGEN_REVIEWER_EFFORT") or _EFFORT
+EVALUATOR_EFFORT = os.getenv("PTESTGEN_EVALUATOR_EFFORT") or _EFFORT
 
 
 # --- Agent Settings ---
@@ -115,6 +81,14 @@ DEFAULT_OUTPUT_GIFT_FILE = "output/gift_questions.gift"
 DEFAULT_OUTPUT_WOOCLAP_FILE = "output/wooclap_questions.csv" # Changed extension to csv
 DEFAULT_OUTPUT_REXAMS_DIR = "output/rexams/" # Directory for R/exams output files
 DEFAULT_LANGUAGE = "Spanish"
+
+_LANGUAGE_CODES = {"spanish": "es", "español": "es", "castellano": "es", "english": "en", "inglés": "en",
+                   "catalan": "ca", "català": "ca", "valencian": "ca", "valencià": "ca"}
+
+
+def language_code(language: str) -> str:
+    """'Spanish' -> 'es': pexams labels the answer sheets by language code."""
+    return _LANGUAGE_CODES.get(str(language).strip().lower(), str(language))
 
 # --- Prompting ---
 GENERATION_SYSTEM_PROMPT = """
@@ -188,31 +162,12 @@ Output your evaluation as a JSON object with keys: "guessed_correct_answer" (int
 
 
 # --- Other ---
-# Timeout for LLM API calls (in seconds)
-LLM_TIMEOUT = 120
+# Timeout for LLM API calls (in seconds, per read; Anthropic calls stream)
+LLM_TIMEOUT = 180
 # Hard wall-clock limit per attempt. The client timeout is a per-read timeout, so a
 # server that keeps the connection alive (e.g. OpenRouter keep-alive padding) can hang forever.
 LLM_HARD_TIMEOUT = int(os.getenv("PTESTGEN_LLM_HARD_TIMEOUT", "300"))
-# Max retries for LLM API calls
+# Max retries for LLM API calls (by the SDK for HTTP errors, then by ptestgen for any failure)
 LLM_MAX_RETRIES = 2
 # Base delay for retries (in seconds), will be subject to exponential backoff
 RETRY_DELAY_BASE = 2 # Added for retry logic
-
-# Add other configurations as needed
-
-# --- Model Capabilities ---
-# Keywords to identify models that support structured/JSON output modes we use.
-# This is a simple check; models not listed might still work.
-STRUCTURED_OUTPUT_SUPPORTED_MODELS = {
-    "openai": ["*"],
-    # For OpenRouter, support is widespread. We will assume any model the user
-    # selects on OpenRouter is chosen for this capability.
-    # See: https://openrouter.ai/models?fmt=cards&supported_parameters=structured_outputs
-    "openrouter": ["*"], # Using a wildcard to mean "all"
-    "google": ["*"], # Broader keywords
-    "ollama": ["*"],
-    "anthropic": [], # Not implemented with native JSON mode
-    "replicate": [], # Not implemented with native JSON mode
-} 
-
-

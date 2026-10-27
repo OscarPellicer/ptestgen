@@ -1,5 +1,5 @@
-from typing import List, Dict, Any, Optional
-from ..schemas import QuestionRecord, QuestionStage, QuestionContent, QuestionStageContent, ChangeMetrics
+from typing import List, Optional
+from ..schemas import QuestionRecord, QuestionContent, QuestionStageContent
 from .. import artifacts
 from .. import config
 import logging
@@ -48,7 +48,9 @@ class QuestionReviewer(BaseAgent):
                  use_llm: bool = config.DEFAULT_LLM_REVIEW_ENABLED,
                  llm_provider: str = config.LLM_PROVIDER,
                  model_name: str = config.REVIEWER_MODEL,
-                 api_keys: Dict[str, str] = None):
+                 api_key_env: Optional[str] = None,
+                 effort: Optional[str] = config.REVIEWER_EFFORT,
+                 log_path: Optional[str] = None):
 
         super().__init__()
         self.criteria = criteria
@@ -64,7 +66,10 @@ class QuestionReviewer(BaseAgent):
                 self.provider = get_provider(
                     provider_name=llm_provider,
                     model_name=model_name,
-                    api_keys=api_keys
+                    api_key_env=api_key_env,
+                    effort=effort,
+                    log_path=log_path,
+                    role="reviewer",
                 )
             except (ValueError, RuntimeError) as e:
                 logging.error(f"Failed to initialize LLM provider for Reviewer: {e}. Disabling LLM review.")
@@ -123,7 +128,7 @@ class QuestionReviewer(BaseAgent):
     def _apply_llm_review(self, original_content: QuestionContent, custom_instructions: Optional[str] = None) -> Optional[QuestionContent]:
         """Uses an LLM to review content and returns the new content, or None on failure."""
         if not self.provider:
-            logging.error(f"LLM provider not available. Skipping LLM review.")
+            logging.error("LLM provider not available. Skipping LLM review.")
             return None
         if original_content.is_open_answer:
             logging.info("Skipping LLM review for open-answer question; preserving generated expected answer and rubric.")
@@ -147,7 +152,7 @@ class QuestionReviewer(BaseAgent):
             )
 
             if not response_content:
-                logging.error(f"No review content received from LLM.")
+                logging.error("No review content received from LLM.")
                 return None
 
             parsed_review = self._parse_llm_json_response(response_content, expected_structure='review_dict')
@@ -159,7 +164,7 @@ class QuestionReviewer(BaseAgent):
                     if isinstance(reviewed_q_data.get("distractors"), list) and \
                        len(reviewed_q_data.get("distractors")) == len(original_content.distractors):
                         
-                        logging.info(f"Applying LLM suggested revisions.")
+                        logging.info("Applying LLM suggested revisions.")
                         return original_content.model_copy(update={
                             "text": reviewed_q_data["text"],
                             "correct_answer": reviewed_q_data["correct_answer"],
@@ -168,7 +173,7 @@ class QuestionReviewer(BaseAgent):
                     else:
                         logging.warning(f"LLM returned 'reviewed_question' with invalid structure/types or distractor count: {reviewed_q_data}")
             else:
-                logging.warning(f"Failed to parse a valid review response from LLM.")
+                logging.warning("Failed to parse a valid review response from LLM.")
 
         except Exception as e:
             logging.error(f"Error during LLM review call or processing: {e}", exc_info=True)

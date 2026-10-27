@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import os
 from typing import List, Optional
 from .schemas import QuestionRecord
@@ -26,7 +26,9 @@ def convert_ptestgen_to_pexam(
             continue
         
         image_source = None
-        if record.image_reference and record.image_reference.strip():
+        # The image a question was generated from; skipped when the text already shows it.
+        if record.image_reference and record.image_reference.strip() \
+                and f"]({record.image_reference.strip()})" not in latest_content.text:
             # Logic to resolve image path
             # 1. Try treating it as relative to CWD (or absolute)
             path_relative_to_cwd = os.path.abspath(record.image_reference)

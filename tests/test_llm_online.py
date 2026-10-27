@@ -1,11 +1,9 @@
 import os
-from pathlib import Path
 
 import pytest
 
 from ptestgen import artifacts
 from ptestgen.pipeline import PTestGenPipeline
-from ptestgen.schemas import QuestionStage
 
 
 def _requires_llm():

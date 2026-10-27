@@ -1,4 +1,4 @@
-﻿import argparse
+import argparse
 import os
 import tempfile
 import unittest
@@ -85,9 +85,9 @@ class TestHandleCorrect(unittest.TestCase):
         )
 
     @patch("ptestgen.correct.correct_online.update_tsv_from_question_stats", return_value=1)
-    @patch("ptestgen.correct.grades.fill_marks_in_file")
-    @patch("ptestgen.correct.analysis.analyze_results")
-    @patch("ptestgen.correct.utils.load_solutions", return_value=({"1": {1: 1}}, {"1": {1: 1}}, 1))
+    @patch("pexams.grades.fill_marks_in_file")
+    @patch("pexams.analysis.analyze_results")
+    @patch("pexams.utils.load_solutions", return_value=({"1": {1: 1}}, {"1": {1: 1}}, 1))
     def test_handle_correct_fills_marks_when_roster_provided(
         self,
         _mock_load_solutions,

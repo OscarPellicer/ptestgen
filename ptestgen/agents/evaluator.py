@@ -1,4 +1,4 @@
-﻿from typing import List, Dict, Optional
+from typing import List, Optional
 from ..schemas import QuestionRecord, QuestionStage, EvaluationData, QuestionContent
 from .. import config
 import logging
@@ -13,7 +13,9 @@ class QuestionEvaluator(BaseAgent):
                  use_llm: bool = True,
                  llm_provider: str = config.LLM_PROVIDER,
                  model_name: str = config.EVALUATOR_MODEL,
-                 api_keys: Dict[str, str] = None):
+                 api_key_env: Optional[str] = None,
+                 effort: Optional[str] = config.EVALUATOR_EFFORT,
+                 log_path: Optional[str] = None):
 
         super().__init__()
         self.provider: Optional[LLMProvider] = None
@@ -28,7 +30,10 @@ class QuestionEvaluator(BaseAgent):
                 self.provider = get_provider(
                     provider_name=llm_provider,
                     model_name=model_name,
-                    api_keys=api_keys
+                    api_key_env=api_key_env,
+                    effort=effort,
+                    log_path=log_path,
+                    role="evaluator",
                 )
             except (ValueError, RuntimeError) as e:
                 logging.error(f"Failed to initialize LLM provider for Evaluator: {e}. Disabling LLM evaluation.")
@@ -104,7 +109,7 @@ class QuestionEvaluator(BaseAgent):
             )
 
             if not response_content:
-                logging.error(f"No evaluation content received from LLM.")
+                logging.error("No evaluation content received from LLM.")
                 return None
 
             parsed_eval = self._parse_llm_json_response(response_content, expected_structure='evaluation_dict')
@@ -121,12 +126,12 @@ class QuestionEvaluator(BaseAgent):
                         evaluation_result.evaluator_guessed_correctly = (int(guessed_idx) == 1)
                     evaluation_result.evaluation_comments = parsed_eval.get("evaluation_comment")
                     if self.provider:
-                        evaluation_result.evaluation_model = f"{self.llm_provider_name}::{self.provider.model_name}"
+                        evaluation_result.evaluation_model = f"{self.provider.provider_name}::{self.provider.model_name}"
                     return evaluation_result
                 except (ValueError, TypeError) as e:
                     logging.warning(f"LLM returned one or more invalid evaluation fields: {e}")
             else:
-                logging.warning(f"Failed to parse a valid evaluation response from LLM.")
+                logging.warning("Failed to parse a valid evaluation response from LLM.")
         
         except Exception as e:
             logging.error(f"Error during LLM evaluation: {e}", exc_info=True)

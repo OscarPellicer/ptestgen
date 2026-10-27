@@ -1,13 +1,7 @@
-﻿import os
+import os
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import Tuple
 import logging
-
-# Placeholder for future PDF/DOCX/PPTX parsing libraries
-# import pypdf
-# import docx
-# from pptx import Presentation
-# from PIL import Image
 
 # Import parsing libraries
 try:
@@ -34,13 +28,6 @@ except ImportError:
     rtf_to_text = None
     logging.warning("`striprtf` library not found. Install with `pip install striprtf` to enable RTF parsing.")
 
-# PIL (Pillow) is still needed for image handling later, but not directly used here yet
-try:
-    from PIL import Image
-except ImportError:
-    Image = None
-    # No warning needed here yet, as it's only for explicit image inputs for now
-
 try:
     from nbconvert import MarkdownExporter
 except ImportError:
@@ -53,20 +40,129 @@ except ImportError:
     pevaluate_utils = None
     logging.warning("`pevaluate` Markdown parser not found. Falling back to legacy text extraction.")
 
+# Formats converted to Markdown (with their images) by pevaluate's parser, when installed.
+PEVALUATE_EXTENSIONS = {
+    ".txt", ".md", ".markdown", ".pdf", ".docx", ".pptx", ".html", ".htm",
+    ".ipynb", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+}
+
+
+def _parse_with_pevaluate(file_path: str, output_dir, markdown_config) -> Tuple[str, list]:
+    """Markdown of the file and the images extracted next to it (``<stem>_assets``)."""
+    asset_base_dir = Path(output_dir) if output_dir else Path(file_path).parent
+    image_output_dir = asset_base_dir / f"{Path(file_path).stem}_assets"
+    extraction = pevaluate_utils.read_file_markdown(
+        file_path,
+        image_output_dir=image_output_dir,
+        image_reference_dir=asset_base_dir,
+        markdown_config=markdown_config or {},
+    )
+    image_references = list(getattr(extraction, "image_paths", []) or [])
+    logging.info(
+        "Parsed %s to Markdown using pevaluate parser. Extracted %d chars and %d image asset(s).",
+        file_path,
+        len(extraction.markdown),
+        len(image_references),
+    )
+    return extraction.markdown.strip(), image_references
+
+
+# Legacy text extraction, one reader per format: (path) -> text.
+def _read_plain_text(file_path: str) -> str:
+    with open(file_path, 'r', encoding='utf-8') as f:
+        return f.read()
+
+
+def _read_pdf(file_path: str) -> str:
+    reader = pypdf.PdfReader(file_path)
+    return "\n".join(text for text in (page.extract_text() for page in reader.pages) if text)
+
+
+def _read_docx(file_path: str) -> str:
+    document = docx.Document(file_path)
+    text_parts = [para.text for para in document.paragraphs if para.text]
+    # Table cells are appended as separate paragraphs
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                cell_text = cell.text.strip()
+                if cell_text:
+                    text_parts.append(cell_text)
+    return "\n".join(text_parts)
+
+
+def _read_pptx(file_path: str) -> str:
+    text_parts = []
+    for slide in Presentation(file_path).slides:
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                shape_text = shape.text.strip()
+                if shape_text:
+                    text_parts.append(shape_text)
+            if shape.has_table:
+                for row in shape.table.rows:
+                    for cell in row.cells:
+                        cell_text = cell.text_frame.text.strip()
+                        if cell_text:
+                            text_parts.append(cell_text)
+    return "\n".join(text_parts)
+
+
+def _read_rtf(file_path: str) -> str:
+    with open(file_path, 'r', encoding='ascii', errors='ignore') as f:  # RTF often uses extended ASCII
+        return rtf_to_text(f.read())
+
+
+def _read_ipynb(file_path: str) -> str:
+    text_content, _resources = MarkdownExporter().from_filename(file_path)
+    return text_content
+
+
+# extension -> (reader, name of the module global it needs, library name, how it is described in the log)
+_LEGACY_READERS = {
+    ".pdf": (_read_pdf, "pypdf", "pypdf", "PDF file using pypdf"),
+    ".docx": (_read_docx, "docx", "python-docx", "DOCX file using python-docx"),
+    ".pptx": (_read_pptx, "Presentation", "python-pptx", "PPTX file using python-pptx"),
+    ".rtf": (_read_rtf, "rtf_to_text", "striprtf", "RTF file using striprtf"),
+    ".ipynb": (_read_ipynb, "MarkdownExporter", "nbconvert", "IPYNB file by converting to Markdown"),
+}
+
+
+def _parse_legacy(file_path: str, extension: str) -> str:
+    """Plain text of the file with the format's own library ("" if it is missing or fails)."""
+    if extension in (".txt", ".md"):  # Markdown is read as plain text
+        text_content = _read_plain_text(file_path)
+        logging.info(f"Successfully parsed {extension} file as plain text.")
+        return text_content
+
+    if extension not in _LEGACY_READERS:
+        logging.warning(f"Unsupported file format: {extension} for file '{file_path}'. Cannot extract text.")
+        return ""
+
+    reader, module_global, library, description = _LEGACY_READERS[extension]
+    kind = extension[1:].upper()
+    if not globals()[module_global]:
+        logging.warning(f"Skipping {kind} parsing for '{file_path}' as {library} library is not available.")
+        return ""
+    try:
+        text_content = reader(file_path)
+    except Exception as e:
+        logging.error(f"Error parsing {kind} file '{file_path}' with {library}: {e}", exc_info=True)
+        return ""
+    logging.info(f"Successfully parsed {description}. Extracted {len(text_content)} characters.")
+    return text_content
+
 
 def parse_input_material(file_path: str, output_dir: str = None, markdown_config: dict = None) -> Tuple[str, list]:
     """
-    Parses the input material file and returns its text content.
-    Optionally extracts images found within the document (functionality not implemented yet).
+    Parses the input material file and returns its text content and the images extracted from it.
 
-    Args:
-        file_path (str): Path to the input document.
+    With pevaluate installed, the supported formats are converted to Markdown and their images
+    are saved under ``output_dir`` (default: the file's folder); otherwise only the text is read.
 
     Returns:
-        Tuple[str, list]: A tuple containing:
-            - The extracted text content (str).
-            - A list of extracted image references (currently placeholders or file paths) (list).
-            Returns ("", []) if parsing fails or format is unsupported.
+        Tuple[str, list]: the extracted text and the paths of the extracted images.
+        Returns ("", []) if parsing fails or the format is unsupported.
 
     Raises:
         FileNotFoundError: If the input file does not exist.
@@ -74,181 +170,18 @@ def parse_input_material(file_path: str, output_dir: str = None, markdown_config
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Input file not found: {file_path}")
 
-    _, extension = os.path.splitext(file_path)
-    extension = extension.lower()
-    text_content = ""
-    image_references = [] # To hold references to extracted images later
-
+    extension = os.path.splitext(file_path)[1].lower()
     logging.info(f"Attempting to parse '{file_path}' (extension: {extension})")
 
-    if pevaluate_utils is not None and extension in {
-        ".txt", ".md", ".markdown", ".pdf", ".docx", ".pptx", ".html", ".htm",
-        ".ipynb", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
-    }:
-        asset_base_dir = Path(output_dir) if output_dir else Path(file_path).parent
-        image_output_dir = asset_base_dir / f"{Path(file_path).stem}_assets"
-        extraction = pevaluate_utils.read_file_markdown(
-            file_path,
-            image_output_dir=image_output_dir,
-            image_reference_dir=asset_base_dir,
-            markdown_config=markdown_config or {},
-        )
-        image_references = list(getattr(extraction, "image_paths", []) or [])
-        logging.info(
-            "Parsed %s to Markdown using pevaluate parser. Extracted %d chars and %d image asset(s).",
-            file_path,
-            len(extraction.markdown),
-            len(image_references),
-        )
-        return extraction.markdown.strip(), image_references
+    if pevaluate_utils is not None and extension in PEVALUATE_EXTENSIONS:
+        return _parse_with_pevaluate(file_path, output_dir, markdown_config)
 
     try:
-        if extension == ".txt" or extension == ".md": # Treat Markdown as plain text for now
-            with open(file_path, 'r', encoding='utf-8') as f:
-                text_content = f.read()
-            logging.info(f"Successfully parsed {extension} file as plain text.")
-
-        elif extension == ".pdf":
-            if pypdf:
-                try:
-                    reader = pypdf.PdfReader(file_path)
-                    text_parts = []
-                    for i, page in enumerate(reader.pages):
-                        page_text = page.extract_text()
-                        if page_text:
-                             text_parts.append(page_text)
-                    text_content = "\n".join(text_parts)
-                    logging.info(f"Successfully parsed PDF file using pypdf. Extracted {len(text_content)} characters.")
-                except Exception as e:
-                    logging.error(f"Error parsing PDF file '{file_path}' with pypdf: {e}", exc_info=True)
-            else:
-                logging.warning(f"Skipping PDF parsing for '{file_path}' as pypdf library is not available.")
-
-        elif extension == ".docx":
-            if docx:
-                try:
-                    document = docx.Document(file_path)
-                    text_parts = [para.text for para in document.paragraphs if para.text]
-                    # Add text from tables (basic implementation)
-                    for table in document.tables:
-                         for row in table.rows:
-                             for cell in row.cells:
-                                 cell_text = cell.text.strip()
-                                 if cell_text:
-                                     text_parts.append(cell_text) # Append cell text as separate paragraph
-                    text_content = "\n".join(text_parts)
-                    logging.info(f"Successfully parsed DOCX file using python-docx. Extracted {len(text_content)} characters.")
-                except Exception as e:
-                     logging.error(f"Error parsing DOCX file '{file_path}' with python-docx: {e}", exc_info=True)
-            else:
-                logging.warning(f"Skipping DOCX parsing for '{file_path}' as python-docx library is not available.")
-
-        elif extension == ".pptx":
-            if Presentation:
-                try:
-                    prs = Presentation(file_path)
-                    text_parts = []
-                    for slide in prs.slides:
-                        for shape in slide.shapes:
-                            if hasattr(shape, "text"):
-                                shape_text = shape.text.strip()
-                                if shape_text:
-                                     text_parts.append(shape_text)
-                            # --- Placeholder for Table Text ---
-                            if shape.has_table:
-                                table = shape.table
-                                for row in table.rows:
-                                    for cell in row.cells:
-                                         cell_text = cell.text_frame.text.strip()
-                                         if cell_text:
-                                             text_parts.append(cell_text)
-                    text_content = "\n".join(text_parts)
-                    logging.info(f"Successfully parsed PPTX file using python-pptx. Extracted {len(text_content)} characters.")
-                except Exception as e:
-                    logging.error(f"Error parsing PPTX file '{file_path}' with python-pptx: {e}", exc_info=True)
-            else:
-                logging.warning(f"Skipping PPTX parsing for '{file_path}' as python-pptx library is not available.")
-
-        elif extension == ".rtf":
-            if rtf_to_text:
-                 try:
-                     with open(file_path, 'r', encoding='ascii', errors='ignore') as f: # RTF often uses extended ASCII
-                         rtf_content = f.read()
-                     text_content = rtf_to_text(rtf_content)
-                     logging.info(f"Successfully parsed RTF file using striprtf. Extracted {len(text_content)} characters.")
-                 except Exception as e:
-                     logging.error(f"Error parsing RTF file '{file_path}' with striprtf: {e}", exc_info=True)
-            else:
-                 logging.warning(f"Skipping RTF parsing for '{file_path}' as striprtf library is not available.")
-
-        elif extension == ".ipynb":
-            if MarkdownExporter:
-                try:
-                    md_exporter = MarkdownExporter()
-                    (text_content, resources) = md_exporter.from_filename(file_path)
-                    logging.info(f"Successfully parsed IPYNB file by converting to Markdown. Extracted {len(text_content)} characters.")
-                except Exception as e:
-                    logging.error(f"Error parsing IPYNB file '{file_path}' with nbconvert: {e}", exc_info=True)
-            else:
-                logging.warning(f"Skipping IPYNB parsing for '{file_path}' as nbconvert library is not available.")
-        else:
-            logging.warning(f"Unsupported file format: {extension} for file '{file_path}'. Cannot extract text.")
-            # Consider trying to read as plain text as a fallback?
-            # try:
-            #     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            #         text_content = f.read()
-            #     logging.info(f"Read unsupported file {extension} as plain text (might be garbled).")
-            # except Exception as e:
-            #      logging.error(f"Could not read unsupported file '{file_path}' as plain text: {e}")
-
+        return _parse_legacy(file_path, extension).strip(), []
     except Exception as e:
-         logging.error(f"An unexpected error occurred during parsing of '{file_path}': {e}", exc_info=True)
-         return "", [] # Return empty on major failure
+        logging.error(f"An unexpected error occurred during parsing of '{file_path}': {e}", exc_info=True)
+        return "", []
 
-    return text_content.strip(), image_references
-
-def parse_image_input(image_path: str) -> Any:
-    """
-    Parses an input image file provided directly.
-    This is distinct from extracting images embedded within documents.
-
-    Args:
-        image_path (str): Path to the image file.
-
-    Returns:
-        Any: Placeholder representing the loaded image data (currently the path).
-             Returns None if parsing fails or format is unsupported.
-
-    Raises:
-        FileNotFoundError: If the image file does not exist.
-        ValueError: If the image format is not supported.
-    """
-    if not os.path.exists(image_path):
-        raise FileNotFoundError(f"Image file not found: {image_path}")
-
-    _, extension = os.path.splitext(image_path)
-    supported_extensions = ['.png', '.jpg', '.jpeg', '.bmp', '.gif'] # Common vision model supported types
-    if extension.lower() not in supported_extensions:
-        raise ValueError(f"Unsupported image format for direct input: {extension}")
-
-    # Check if Pillow is available for potential future validation/processing
-    if Image:
-        try:
-            # Try opening the image to validate it
-            with Image.open(image_path) as img:
-                 img.verify() # Verify image header without loading full data
-            logging.debug(f"Validated image file: {image_path}")
-            # For now, just return the path as the 'parsed' data
-            return image_path
-        except Exception as e:
-            logging.error(f"Failed to validate image file '{image_path}' using Pillow: {e}", exc_info=True)
-            # Decide if we should raise ValueError or return None/path anyway
-            # Let's raise for now, as it indicates a problem with the file
-            raise ValueError(f"Image file '{image_path}' seems corrupted or invalid.") from e
-    else:
-        # If Pillow is not installed, we can't validate, just return the path
-        logging.warning("Pillow library not installed. Cannot validate image file, proceeding with path only.")
-        return image_path
 
 if __name__ == "__main__":
     import argparse

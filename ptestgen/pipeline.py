@@ -3,11 +3,10 @@ from typing import List, Optional
 import logging
 import sys
 import random
-import shutil
 import copy
 
 from . import config
-from .schemas import QuestionRecord, QuestionStage, QuestionContent, EvaluationData
+from .schemas import QuestionRecord, QuestionStage
 from .input_parser import parser
 from .agents.generator import QuestionGenerator
 from .agents.reviewer import QuestionReviewer
@@ -23,26 +22,65 @@ from pexams.io import (
     wooclap_converter as pexams_wooclap
 )
 
-# The old Question dataclass is needed for compatibility with existing converters.
-# This should be phased out eventually.
-from dataclasses import dataclass
-@dataclass
-class LegacyQuestion:
-    id: int
-    text: str
-    correct_answer: str
-    distractors: List[str]
-    source_material: Optional[str] = None
-    image_reference: Optional[str] = None
-    explanation: Optional[str] = None
-    initial_evaluation: Optional[EvaluationData] = None
-    reviewed_evaluation: Optional[EvaluationData] = None
-    
-    @property
-    def options(self) -> List[str]:
-        return [self.correct_answer] + self.distractors
 
-logger = logging.getLogger(__name__)
+def _parse_input_materials(paths: List[str], output_dir: str):
+    """Text of every input file (joined by separators) and the images extracted from them."""
+    texts: List[str] = []
+    images: List[str] = []
+    for path in paths:
+        logging.info(f"Parsing input material: {path}")
+        try:
+            parsed_text, extracted_images = parser.parse_input_material(path, output_dir=output_dir)
+            if extracted_images:
+                images.extend(extracted_images)
+                logging.info(
+                    "Extracted %d image asset(s) referenced from intermediate Markdown for %s. "
+                    "They are only sent as context images when --include-images is used.",
+                    len(extracted_images),
+                    path,
+                )
+            if parsed_text:
+                texts.append(parsed_text)
+            else:
+                logging.warning(f"No text content extracted from '{path}'. Skipping.")
+        except Exception as e:
+            logging.error(f"Failed to parse input material {path}: {e}", exc_info=True)
+    return "\n\n---\n\n".join(texts), images
+
+
+# Exporters of the formats other than pexams: (questions, output base path, markdown folder) -> path written.
+def _export_rexams(questions, output_base, md_base_dir):
+    output_dir = f"{output_base}_rexams"  # rexams needs a directory
+    os.makedirs(output_dir, exist_ok=True)
+    pexams_rexams.prepare_for_rexams(questions, output_dir, base_dir=md_base_dir)
+    print(f"R/exams files generated in: {os.path.abspath(output_dir)}")
+
+
+def _export_wooclap(questions, output_base, md_base_dir):
+    output_file = f"{output_base}_wooclap.csv"
+    pexams_wooclap.convert_to_wooclap(questions, output_file)
+    print(f"Wooclap file generated at: {os.path.abspath(output_file)}")
+
+
+def _export_gift(questions, output_base, md_base_dir):
+    output_file = f"{output_base}.gift"
+    pexams_gift.convert_to_gift(questions, output_file, base_dir=md_base_dir)
+    print(f"GIFT file generated at: {os.path.abspath(output_file)}")
+
+
+def _export_moodle_xml(questions, output_base, md_base_dir):
+    output_file = f"{output_base}_moodle.xml"
+    pexams_moodle.convert_to_moodle_xml(questions, output_file, base_dir=md_base_dir)
+    print(f"Moodle XML file generated at: {os.path.abspath(output_file)}")
+
+
+FILE_EXPORTERS = {
+    'rexams': _export_rexams,
+    'wooclap': _export_wooclap,
+    'gift': _export_gift,
+    'moodle_xml': _export_moodle_xml,
+}
+
 
 class PTestGenPipeline:
     """Orchestrates the PTestGen question generation process."""
@@ -60,36 +98,106 @@ class PTestGenPipeline:
             "reviewer_model": config.REVIEWER_MODEL,
             "evaluator_model": config.EVALUATOR_MODEL,
             "use_llm_review": config.DEFAULT_LLM_REVIEW_ENABLED,
-            "api_keys": {
-                 "openai": config.OPENAI_API_KEY,
-                 "google": config.GOOGLE_API_KEY,
-                 "anthropic": config.ANTHROPIC_API_KEY,
-                 "replicate": config.REPLICATE_API_TOKEN,
-                 "openrouter": config.OPENROUTER_API_KEY,
-            }
+            # Variable holding the API key of the selected provider (None: config.PROVIDER_API_KEY_MAP).
+            "api_key_env": None,
+            # "effort" sets all three agents; the per-agent keys take precedence.
+            "effort": None,
+            "generator_effort": config.GENERATOR_EFFORT,
+            "reviewer_effort": config.REVIEWER_EFFORT,
+            "evaluator_effort": config.EVALUATOR_EFFORT,
         }
         if config_override:
             self.current_config.update(config_override)
             logging.info(f"Applying config overrides: {config_override}")
 
-        # Initialize agents with potentially overridden config
-        self.generator = QuestionGenerator(
-            llm_provider=self.current_config["llm_provider"],
-            model_name=self.current_config["generator_model"],
-            api_keys=self.current_config["api_keys"]
-        )
-        self.reviewer = QuestionReviewer(
-            use_llm=self.current_config["use_llm_review"],
-            llm_provider=self.current_config["llm_provider"],
-            model_name=self.current_config["reviewer_model"],
-            api_keys=self.current_config["api_keys"]
-        )
-        self.evaluator = QuestionEvaluator(
-            llm_provider=self.current_config["llm_provider"],
-            model_name=self.current_config["evaluator_model"],
-            api_keys=self.current_config["api_keys"]
-        )
+        cfg = self.current_config
+
+        def agent_llm(role):
+            return {
+                "llm_provider": cfg["llm_provider"],
+                "model_name": cfg[f"{role}_model"],
+                "api_key_env": cfg.get("api_key_env"),
+                "effort": (config_override or {}).get(f"{role}_effort") or cfg.get("effort") or cfg.get(f"{role}_effort"),
+            }
+
+        # Initialize agents with potentially overridden config. Clients connect on first use.
+        self.generator = QuestionGenerator(**agent_llm("generator"))
+        self.reviewer = QuestionReviewer(use_llm=cfg["use_llm_review"], **agent_llm("reviewer"))
+        self.evaluator = QuestionEvaluator(**agent_llm("evaluator"))
         logging.info(f"Pipeline initialized with use_llm_review={self.current_config['use_llm_review']}.")
+
+    def _providers(self):
+        agents = (("generator", self.generator), ("reviewer", self.reviewer), ("evaluator", self.evaluator))
+        return {role: agent.provider for role, agent in agents if getattr(agent, "provider", None) is not None}
+
+    def start_llm_log(self, output_dir: str, command: str, inputs=()) -> None:
+        """Log every LLM call of this run to ``<output_dir>/llm_calls.jsonl`` and write
+        ``run_manifest.json`` (command, package versions, models, input hashes), as pexams and
+        pevaluate do."""
+        providers = self._providers()
+        if not providers:
+            return
+        output_dir = output_dir or "."
+        for provider in providers.values():
+            provider.log_path = os.path.join(output_dir, "llm_calls.jsonl")
+        try:
+            from pexams.llm import write_run_manifest
+
+            write_run_manifest(
+                output_dir,
+                "ptestgen",
+                inputs=[path for path in inputs if path],
+                extra={"subcommand": command, "llm": {role: provider.describe() for role, provider in providers.items()}},
+            )
+        except Exception as e:  # provenance must never stop a run
+            logging.warning(f"Could not write run_manifest.json: {e}")
+
+
+    def _evaluate_stage(self, records, stage, enabled, title, done, instructions, language):
+        """Run the evaluator on ``records`` at ``stage`` if ``enabled``, printing the step."""
+        if not enabled:
+            print(f"\n{title}... (Skipped)")
+            return
+        print(f"\n{title}...")
+        self.evaluator.evaluate_records(
+            records,
+            stage=stage,
+            custom_instructions=instructions,
+            language=language
+        )
+        print(done)
+
+    def _generate_records(self, text_content, image_paths, extracted_image_paths, input_material_paths,
+                          num_questions, language, generator_instructions, num_questions_per_image,
+                          question_type, include_images) -> List[QuestionRecord]:
+        """Questions from the text (and instructions), then the questions from each image."""
+        print("\nStep 2: Generating questions...")
+        records = self.generator.generate_questions_from_text(
+            text_content=text_content,
+            num_questions=num_questions,
+            language=language,
+            custom_instructions=generator_instructions,
+            source_material_path=", ".join(input_material_paths) if input_material_paths else None,
+            question_type=question_type,
+            context_image_paths=extracted_image_paths if include_images else [],
+        )
+
+        if image_paths:
+            print("\nStep 2b: Generating questions from images...")
+            image_records = self.generator.generate_questions_from_images(
+                image_paths=image_paths,
+                context_text=None,
+                custom_instructions=generator_instructions,
+                language=language,
+                num_questions_per_image=num_questions_per_image,
+                question_type=question_type,
+            )
+            if image_records:
+                print(f"Generated {len(image_records)} questions from images.")
+                records.extend(image_records)
+            else:
+                print("No questions were generated from the provided images.")
+        return records
 
     def generate(self,
                  input_material_paths: Optional[List[str]],
@@ -110,37 +218,15 @@ class PTestGenPipeline:
         Runs the full question generation and review pipeline.
         """
         print("\n--- Starting Generation Pipeline ---")
-        question_records: List[QuestionRecord] = []
+        output_dir = os.path.dirname(os.path.abspath(output_md_path))
+        self.start_llm_log(output_dir, "generate", inputs=list(input_material_paths or []) + list(image_paths or []))
 
         # 1. Parse Input Material
         text_content = ""
         extracted_image_paths: List[str] = []
         if input_material_paths:
             print("\nStep 1: Parsing input material...")
-            all_text_content = []
-            for path in input_material_paths:
-                logging.info(f"Parsing input material: {path}")
-                try:
-                    parsed_text, extracted_images = parser.parse_input_material(
-                        path,
-                        output_dir=os.path.dirname(os.path.abspath(output_md_path)),
-                    )
-                    if extracted_images:
-                        extracted_image_paths.extend(extracted_images)
-                        logging.info(
-                            "Extracted %d image asset(s) referenced from intermediate Markdown for %s. "
-                            "They are only sent as context images when --include-images is used.",
-                            len(extracted_images),
-                            path,
-                        )
-                    if parsed_text:
-                        all_text_content.append(parsed_text)
-                    else:
-                        logging.warning(f"No text content extracted from '{path}'. Skipping.")
-                except Exception as e:
-                    logging.error(f"Failed to parse input material {path}: {e}", exc_info=True)
-            
-            text_content = "\n\n---\n\n".join(all_text_content)
+            text_content, extracted_image_paths = _parse_input_materials(input_material_paths, output_dir)
 
         # If there's no text, no images and no generator instructions, there's nothing to work with
         if not text_content and not image_paths and not generator_instructions:
@@ -148,41 +234,13 @@ class PTestGenPipeline:
             sys.exit(1)
 
         if not text_content:
-            if image_paths:
-                print("\nStep 1: Parsing input material... (No text content found, proceeding with images only)")
-            else:
-                # We may still proceed if generator_instructions is provided (e.g. CLI '--generator-instructions')
-                print("\nStep 1: Parsing input material... (No text content found, proceeding with generator instructions only)")
-        
-        # 2. Generate Questions
-        print("\nStep 2: Generating questions...")
-        question_records = self.generator.generate_questions_from_text(
-            text_content=text_content,
-            num_questions=num_questions,
-            language=language,
-            custom_instructions=generator_instructions,
-            source_material_path=", ".join(input_material_paths) if input_material_paths else None,
-            question_type=question_type,
-            context_image_paths=extracted_image_paths if include_images else [],
-        )
-        
-        # Add image-based questions
-        if image_paths:
-            print("\nStep 2b: Generating questions from images...")
-            image_records = self.generator.generate_questions_from_images(
-                image_paths=image_paths,
-                context_text=None, #text_content, # Provide text as context
-                custom_instructions=generator_instructions,
-                language=language,
-                num_questions_per_image=num_questions_per_image,
-                question_type=question_type,
-            )
-            if image_records:
-                print(f"Generated {len(image_records)} questions from images.")
-                question_records.extend(image_records)
-            else:
-                print("No questions were generated from the provided images.")
+            source = "images" if image_paths else "generator instructions"
+            print(f"\nStep 1: Parsing input material... (No text content found, proceeding with {source} only)")
 
+        # 2. Generate Questions
+        question_records = self._generate_records(
+            text_content, image_paths, extracted_image_paths, input_material_paths, num_questions, language,
+            generator_instructions, num_questions_per_image, question_type, include_images)
 
         if not question_records:
             logging.error("No questions were generated. Halting pipeline.")
@@ -193,17 +251,9 @@ class PTestGenPipeline:
         print(f"Generated {len(question_records)} questions.")
 
         # 3. Initial Evaluation
-        if evaluate_initial:
-            print("\nStep 3: Evaluating initial questions...")
-            self.evaluator.evaluate_records(
-                question_records,
-                stage=QuestionStage.GENERATED,
-                custom_instructions=evaluator_instructions,
-                language=language
-            )
-            print("Initial evaluation complete.")
-        else:
-            print("\nStep 3: Evaluating initial questions... (Skipped)")
+        self._evaluate_stage(question_records, QuestionStage.GENERATED, evaluate_initial,
+                             "Step 3: Evaluating initial questions", "Initial evaluation complete.",
+                             evaluator_instructions, language)
 
         # 4. Review Questions
         print("\nStep 4: Reviewing questions...")
@@ -214,20 +264,12 @@ class PTestGenPipeline:
         print("Automated review complete.")
 
         # 5. Reviewed Evaluation
-        if evaluate_reviewed:
-            print("\nStep 5: Evaluating reviewed questions...")
-            self.evaluator.evaluate_records(
-                question_records,
-                stage=QuestionStage.REVIEWED,
-                custom_instructions=evaluator_instructions,
-                language=language
-            )
-            print("Reviewed evaluation complete.")
-        else:
-            print("\nStep 5: Evaluating reviewed questions... (Skipped)")
+        self._evaluate_stage(question_records, QuestionStage.REVIEWED, evaluate_reviewed,
+                             "Step 5: Evaluating reviewed questions", "Reviewed evaluation complete.",
+                             evaluator_instructions, language)
 
         # 7. Write final artifacts
-        print(f"\nStep 7: Writing artifacts...")
+        print("\nStep 7: Writing artifacts...")
         artifacts.write_artifacts(
             records=question_records,
             md_path=output_md_path,
@@ -271,20 +313,12 @@ class PTestGenPipeline:
         print(f"\n--- Starting Export Pipeline from {input_md_path} ---")
 
         if evaluate_final:
-            print("\nEvaluating final questions...")
-            self.evaluator.evaluate_records(
-                records_to_export,
-                stage=QuestionStage.FINAL,
-                custom_instructions=evaluator_instructions,
-                language=language
-            )
-            print("Final evaluation complete.")
-        else:
-            print("\nEvaluating final questions... (Skipped)")
-        
-        questions_for_conversion = records_to_export
+            self.start_llm_log(os.path.dirname(os.path.abspath(input_md_path)), "export --evaluate-final", inputs=[input_md_path])
+        self._evaluate_stage(records_to_export, QuestionStage.FINAL, evaluate_final,
+                             "Evaluating final questions", "Final evaluation complete.",
+                             evaluator_instructions, language)
 
-        # Subset Selection
+        questions_for_conversion = records_to_export
         if num_final_questions is not None and 0 < num_final_questions < len(questions_for_conversion):
             print(f"Selecting random subset of {num_final_questions} questions...")
             # Use seed if provided for deterministic selection, otherwise global random
@@ -296,11 +330,10 @@ class PTestGenPipeline:
             print("\n--- Export Pipeline Finished ---")
             return
 
-        # --- 5. Convert to final formats ---
         base_filename = os.path.splitext(os.path.basename(input_md_path))[0]
-        output_dir_for_conversions = os.path.dirname(input_md_path)
+        output_dir_for_conversions = os.path.dirname(input_md_path) or "."
+        md_base_dir = os.path.dirname(os.path.abspath(input_md_path))
 
-        # Convert to PexamQuestion objects
         pexam_questions_base = pexams_converter.convert_ptestgen_to_pexam(
             records=questions_for_conversion,
             input_md_path=input_md_path,
@@ -308,32 +341,20 @@ class PTestGenPipeline:
             max_image_height=max_image_height
         )
 
-        # Set fixed seeds for this export run to ensure consistency across formats
-        # If no seed provided, generate one random seed to use for ALL formats in this run
-        # No seed means "keep the author's order" (as documented and as pexams interprets None);
-        # every format then shares the same (unshuffled) order.
-        effective_q_seed = shuffle_questions_seed
-
+        # Every format of this run uses the same seeds. No question seed means "keep the author's
+        # order" (as documented and as pexams interprets None).
         effective_a_seed = shuffle_answers_seed if shuffle_answers_seed is not None else 42
 
         for fmt in output_formats:
             print(f"Exporting to format: {fmt}")
-            
-            # Determine output directory or file path based on format
-            suffix = f"_{fmt}_output" if fmt == 'pexams' else ""
-            output_base = os.path.join(output_dir_for_conversions, f"{base_filename}{suffix}")
-            
-            # Set global seeds for this iteration to ensure consistency/determinism
-            utils.set_seeds(seed_questions=effective_q_seed, seed_answers=effective_a_seed)
-
-            # Always work on a copy to avoid side effects (e.g. pexams modifying list in-place)
+            utils.set_seeds(seed_questions=shuffle_questions_seed, seed_answers=effective_a_seed)
+            # Always work on a copy to avoid side effects (e.g. pexams modifying the list in place)
             questions_to_export = copy.deepcopy(pexam_questions_base)
 
             if fmt == 'pexams':
-                output_dir = output_base
+                output_dir = os.path.join(output_dir_for_conversions, f"{base_filename}_pexams_output")
                 os.makedirs(output_dir, exist_ok=True)
-                
-                # generate_exams handles shuffling internally using the global seeds
+                # generate_exams shuffles internally using the global seeds
                 generate_exams.generate_exams(
                     questions=questions_to_export,
                     output_dir=output_dir,
@@ -349,50 +370,23 @@ class PTestGenPipeline:
                     keep_html=keep_html,
                     total_students=total_students,
                     extra_model_templates=extra_model_templates,
-                    # shuffle_questions removed, handled via utils.set_seeds
-                    # seed_answers removed, handled via utils.set_seeds
                     custom_header=custom_header,
-                    markdown_asset_base_dir=os.path.dirname(os.path.abspath(input_md_path)),
+                    markdown_asset_base_dir=md_base_dir,
                     mc_total_points=mc_total_points,
                     fill_answer_space=fill_answer_space,
                     show_points=show_points,
                 )
                 print(f"Pexams outputs generated in: {os.path.abspath(output_dir)}")
+                continue
 
-            else:
-                # For other formats, we must shuffle manually
-                # (questions_to_export is already a copy)
-                
-                # Apply shuffling
-                utils.shuffle_questions_list(questions_to_export)
-                for q in questions_to_export:
-                    utils.shuffle_options_for_question(q)
+            exporter = FILE_EXPORTERS.get(fmt)
+            if exporter is None:
+                logging.error(f"Unknown format: {fmt}")
+                continue
+            # The other formats are shuffled here
+            utils.shuffle_questions_list(questions_to_export)
+            for q in questions_to_export:
+                utils.shuffle_options_for_question(q)
+            exporter(questions_to_export, os.path.join(output_dir_for_conversions, base_filename), md_base_dir)
 
-                if fmt == 'rexams':
-                    # rexams needs a directory
-                    output_dir = f"{output_base}_rexams"
-                    os.makedirs(output_dir, exist_ok=True)
-                    pexams_rexams.prepare_for_rexams(questions_to_export, output_dir)
-                    print(f"R/exams files generated in: {os.path.abspath(output_dir)}")
-                
-                elif fmt == 'wooclap':
-                    output_file = f"{output_base}_wooclap.csv"
-                    pexams_wooclap.convert_to_wooclap(questions_to_export, output_file)
-                    print(f"Wooclap file generated at: {os.path.abspath(output_file)}")
-
-                elif fmt == 'gift':
-                    output_file = f"{output_base}.gift"
-                    pexams_gift.convert_to_gift(questions_to_export, output_file)
-                    print(f"GIFT file generated at: {os.path.abspath(output_file)}")
-
-                elif fmt == 'moodle_xml':
-                    output_file = f"{output_base}_moodle.xml"
-                    pexams_moodle.convert_to_moodle_xml(questions_to_export, output_file)
-                    print(f"Moodle XML file generated at: {os.path.abspath(output_file)}")
-                
-                else:
-                    logging.error(f"Unknown format: {fmt}")
-
-
-        print("\n--- Export Pipeline Finished ---") 
-
+        print("\n--- Export Pipeline Finished ---")

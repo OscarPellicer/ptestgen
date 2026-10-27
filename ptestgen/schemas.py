@@ -1,5 +1,5 @@
-﻿from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict
 from typing import Literal
 from enum import Enum
 
@@ -22,7 +22,7 @@ class QuestionContent(BaseModel):
     expected_answer: Optional[str] = None
     rubric: Optional[str] = None
     answer_lines: float = 8  # may be fractional, e.g. 8.5
-    # Path from the blockquote image line `> ![...](path)` in questions.md; also mirrored on QuestionRecord.image_reference for TSV export.
+    # The image a question was generated from (`generate -i`); images written in questions.md stay in the text.
     image_reference: Optional[str] = None
 
     @property

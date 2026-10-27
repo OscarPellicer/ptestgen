@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests for ptestgen.correct_online â€” the wrappers around pexams online parsers.
 
 These tests use synthetic TSV / results data and mock out pexams.analysis so
@@ -8,11 +8,10 @@ Run with:  pytest tests/test_correct_online.py -v
 """
 
 import argparse
-import json
 import os
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
 

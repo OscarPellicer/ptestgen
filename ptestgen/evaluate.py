@@ -1,10 +1,8 @@
-﻿import argparse
 import logging
 import os
 import sys
 
 from . import artifacts
-from . import config
 from .pipeline import PTestGenPipeline
 from .schemas import QuestionStage
 
@@ -23,7 +21,10 @@ def handle_evaluate(args):
         logging.warning("No records found in metadata file.")
         return
 
-    pipeline = PTestGenPipeline()
+    # Optional overrides (absent when called from `ptestgen test` with a bare Namespace).
+    config_override = {key: getattr(args, key, None) for key in ("evaluator_model", "api_key_env", "effort")}
+    pipeline = PTestGenPipeline(config_override={k: v for k, v in config_override.items() if v} or None)
+    pipeline.start_llm_log(os.path.dirname(os.path.abspath(md_path)), "evaluate", inputs=[md_path, tsv_path])
     
     # --- 2. Check and Evaluate Each Stage ---
     

@@ -1,4 +1,3 @@
-﻿import argparse
 import logging
 import os
 import sys
@@ -9,10 +8,7 @@ from .pipeline import PTestGenPipeline
 from .schemas import QuestionStage
 from . import correct_online
 
-from pexams import correct_exams
-from pexams import analysis
-from pexams import grades
-from pexams import utils
+from pexams.main import run_correction
 
 def handle_correct(args):
     """Handler for the 'correct' command."""
@@ -28,91 +24,13 @@ def handle_correct(args):
         logging.error(f"Metadata TSV file not found: {tsv_path}")
         sys.exit(1)
 
-    if not os.path.isdir(args.exam_dir):
-        logging.error(f"Exam directory not found: {args.exam_dir}")
-        sys.exit(1)
-
-    if args.penalty < 0:
-        logging.warning("Penalty cannot be negative (it is subtracted). Converting to positive.")
-        args.penalty = abs(args.penalty)
-
-    # --- 2. Run Pexams Correction ---
-    # Load solutions first to verify exam_dir
-    solutions_full, solutions_simple, max_score = utils.load_solutions(args.exam_dir)
-    if not solutions_simple:
-        logging.error("Could not load solutions from exam directory.")
-        sys.exit(1)
-
-    os.makedirs(args.output_dir, exist_ok=True)
-    sep = ';' if args.input_sep == 'semi' else \
-          ',' if args.input_sep == 'comma' else \
-          '\t' if args.input_sep == 'tab' else \
-          '|' if args.input_sep == 'pipe' else \
-          args.input_sep
-
-    if args.only_analysis:
-        logging.info("Skipping image correction (--only-analysis). Using existing results.")
-        correction_success = True
-    else:
-        correction_success = correct_exams.correct_exams(
-            input_path=args.input_path,
-            solutions_per_model=solutions_simple,
-            output_dir=args.output_dir,
-            questions_dir=args.exam_dir,
-            roster_csv=args.input_csv,
-            roster_id_column=args.id_column,
-            roster_name_column=args.name_column,
-            roster_encoding=args.input_encoding,
-            roster_sep=sep,
-            name_match_threshold=getattr(args, "name_match_threshold", 70.0),
-            use_llm_name_ocr=getattr(args, "use_llm_name_ocr", False),
-            openrouter_name_model=getattr(args, "openrouter_name_model", "google/gemini-3.8-flash"),
-            id_reader="llm" if getattr(args, "use_llm_name_ocr", False) else getattr(args, "id_reader", "llm"),
-            id_reader_model=getattr(args, "openrouter_name_model", "google/gemini-3.8-flash") if getattr(args, "use_llm_name_ocr", False) else getattr(args, "id_reader_model", "claude-opus-5-5"),
-            id_reader_effort=getattr(args, "id_reader_effort", "low") or None,
-            api_key_env=getattr(args, "api_key_env", None),
-        )
-    
-    if not correction_success:
+    # --- 2. Correct the scans, analyse them and fill --input-csv: the same code as `pexams correct` ---
+    # args.lang is a language name ("Spanish"); the annotated sheets are labelled by its code.
+    if not run_correction(args, lang=config.language_code(getattr(args, "lang", config.DEFAULT_LANGUAGE))):
         logging.error("Pexams correction failed.")
         sys.exit(1)
 
-    # --- 3. Run Pexams Analysis ---
-    logging.info("Correction finished. Starting analysis.")
-    results_csv = os.path.join(args.output_dir, "correction_results.csv")
-    
-    if not os.path.exists(results_csv):
-        logging.error(f"Correction results file not found at {results_csv}")
-        sys.exit(1)
-
-    analysis.analyze_results(
-        csv_filepath=results_csv,
-        max_score=max_score,
-        output_dir=args.output_dir,
-        void_questions_str=args.void_questions,
-        solutions_per_model=solutions_full,
-        void_questions_nicely_str=args.void_questions_nicely,
-        penalty=args.penalty
-    )
-
-    if args.input_csv:
-        if args.id_column and args.mark_column:
-            grades.fill_marks_in_file(
-                args.input_csv,
-                args.id_column,
-                args.mark_column,
-                results_csv,
-                args.fuzzy_id_match,
-                args.input_encoding,
-                sep,
-                args.output_decimal_sep,
-                name_col=args.name_column,
-                simplify_csv=args.simplify_csv,
-            )
-        else:
-            logging.warning("--input-csv provided but --id-column or --mark-column missing. Skipping mark filling.")
-
-    # --- 4. Read Stats and Update TSV ---
+    # --- 3. Read Stats and Update TSV ---
     stats_csv_path = os.path.join(args.output_dir, "question_stats.csv")
     records = artifacts.read_metadata_tsv(tsv_path)
     if os.path.exists(md_path):
@@ -128,7 +46,7 @@ def handle_correct(args):
     if updated_count >= 0:
         logging.info(f"Updated statistics for {updated_count} questions in '{tsv_path}'.")
 
-    # --- 5. Evaluate Final (Optional) ---
+    # --- 4. Evaluate Final (Optional) ---
     if args.evaluate_final:
         logging.info("Running final evaluation on questions...")
         

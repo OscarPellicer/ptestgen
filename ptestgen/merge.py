@@ -1,8 +1,6 @@
-﻿import os
+import os
 import logging
-from typing import List
 from . import artifacts
-from .schemas import QuestionRecord
 
 def handle_merge_command(args):
     """Handler for the 'merge' command."""

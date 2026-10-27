@@ -1,39 +1,11 @@
-﻿import os
-import base64
-import json
-import time
-import random # Needed for shuffling options in stub
+import os
 from typing import List, Optional, Any, Dict
-from ..schemas import QuestionRecord, QuestionContent, QuestionStage, QuestionStageContent
+from ..schemas import QuestionRecord, QuestionContent, QuestionStageContent
 from .. import config
 from .. import artifacts
 import logging # Use logging
 from .base import BaseAgent
 from ..llm_providers import get_provider, LLMProvider
-
-# Helper function to encode images for APIs
-def encode_image_to_base64(image_path):
-    try:
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8')
-    except Exception as e:
-        logging.error(f"Error encoding image {image_path}: {e}", exc_info=True)
-        return None
-
-# Helper function to get mime type (basic)
-def get_image_mime_type(image_path):
-    ext = os.path.splitext(image_path)[1].lower()
-    if ext == ".png":
-        return "image/png"
-    elif ext in [".jpg", ".jpeg"]:
-        return "image/jpeg"
-    elif ext == ".gif":
-        return "image/gif"
-    elif ext == ".bmp":
-        return "image/bmp"
-    # Add more types if needed
-    return "application/octet-stream" # Default fallback
-
 
 class QuestionGenerator(BaseAgent):
     """Agent responsible for generating questions using various LLM providers."""
@@ -41,7 +13,9 @@ class QuestionGenerator(BaseAgent):
     def __init__(self,
                  llm_provider: str = config.LLM_PROVIDER,
                  model_name: str = config.GENERATOR_MODEL,
-                 api_keys: Dict[str, str] = None):
+                 api_key_env: Optional[str] = None,
+                 effort: Optional[str] = config.GENERATOR_EFFORT,
+                 log_path: Optional[str] = None):
 
         super().__init__()
         self.llm_provider_name = llm_provider
@@ -52,7 +26,10 @@ class QuestionGenerator(BaseAgent):
                 self.provider = get_provider(
                     provider_name=llm_provider,
                     model_name=model_name,
-                    api_keys=api_keys
+                    api_key_env=api_key_env,
+                    effort=effort,
+                    log_path=log_path,
+                    role="generator",
                 )
             except (ValueError, RuntimeError) as e:
                 logging.error(f"Failed to initialize LLM provider for Generator: {e}. Generation will be disabled.")

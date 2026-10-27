@@ -1,0 +1,21 @@
+# Pitfalls already met
+
+- **Wrong exam folder.** Correcting with an exam folder other than the printed one crops the wrong areas. pexams checks the box borders and marks `layout_check=box_not_found` in `open_responses_index.csv`; if many crops have it, stop and find the printed version.
+- **Re-exporting a printed exam** reshuffles models and moves boxes. Lock printed exports; export changes into a new folder.
+- **Deleting the `.tsv`** loses the question history and statistics. Only for brand-new questions.
+- **LaTeX in question text** needs MathJax from a CDN; if it fails to load the PDF shows raw `$...$`. Check the PDF; prefer plain text for simple formulas.
+- **Too many questions for the time.** A 10-minute quiz fits 3 short open questions (2-4 lines each), not 5.
+- **Mac sleep during a run** blocks a request for as long as it sleeps (seen: 74 minutes). Use `caffeinate -i`.
+- **`.env` with Windows line endings** used to break the key, reported only as "Connection error" (fixed: keys are stripped of `\r` and quotes).
+- **Several keys in one `.env`**: the standard `ANTHROPIC_API_KEY` may be an old key without credit ("credit balance is too low"). Ask which variable to use and record it as `environment.api_key_env`; pass `--api-key-env`.
+- **Debugging an API error**: never print an exception's `__cause__`/`__context__` or request headers: the HTTP layer puts the key there. The libraries re-raise redacted errors without the chain; keep it that way in any script.
+- **Students cross out a filled box** instead of using correction fluid. pexams no longer takes the darkest box (the cross makes the crossed one darker): see `multiple_marks` in `correction_results.csv`.
+- **Writing outside the answer box** (below it, in the margin) was invisible to the grader, which then graded a cut answer. pexams flags it (`ink_outside_box`) and `exam-open` grades it from a larger crop; for answers graded before, `--regrade-outside-box`.
+- **Feedback that gives away the automation** ("la imagen", "el recuadro", "revisado a mano"), or feedback on a blank answer: neither goes to students. Write hand edits as the teacher would, and leave blank answers without feedback.
+- **Scans split into several PDFs** by the scanner: pass the folder (sorted by name) or all files in order.
+- **Moodle zips** store UTF-8 names without the UTF-8 flag (pevaluate repairs them). A notebook and its HTML export are one submission. A student may appear alone and in a pair: the higher mark is kept (`lab_conflict`).
+- **Names**: the same student appears as "Apellido, Nombre", "NOMBRE APELLIDO", or with a typo. Matching uses ID digits first, then fuzzy names; always read the unmatched list and fix by hand what remains.
+- **Students with no exam or no submission** count 0 in `combine-marks`; confirm with the teacher (late exam, exemption).
+- **Grading by completeness**: say in the rubric which sections are optional and which code exists only after a student's choice (it cannot be required).
+- **Rubric changes after grading**: rerun only what changed (`--force-regrade` on a copy of the folder), and keep the previous folder for traceability.
+- **Blank-paper exams** must have the same number of pages each for `exam-free` (`--pages-per-exam`); split odd ones.

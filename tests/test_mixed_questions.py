@@ -1,4 +1,4 @@
-﻿from ptestgen import artifacts
+from ptestgen import artifacts
 from ptestgen.agents.generator import QuestionGenerator
 from ptestgen.pexams_converter import convert_ptestgen_to_pexam
 from ptestgen.schemas import ChangeMetrics, QuestionContent, QuestionRecord, QuestionStageContent

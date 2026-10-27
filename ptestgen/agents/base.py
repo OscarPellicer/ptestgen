@@ -1,4 +1,4 @@
-﻿import abc
+import abc
 import json
 import logging
 from typing import Any, Optional
