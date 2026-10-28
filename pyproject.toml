@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ptestgen"
-version = "0.6.2"
+version = "0.7.0"
 authors = [
   { name="PTestGen Team (Oscar)", email="oscar.pellicer@uv.es" },
 ]
@@ -34,7 +34,7 @@ dependencies = [
     "pandas>=2.0.0",
     "tqdm>=4.62.0",
     "pexams>=0.16.0",
-    "pevaluate>=0.3.1",
+    "pevaluate>=0.4.0",
     "openpyxl>=3.0.0",
     "ruamel.yaml>=0.18",
     "PyYAML>=6.0",

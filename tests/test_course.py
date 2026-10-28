@@ -153,3 +153,55 @@ def test_poliformat_zip_steps_are_recognised_and_warn_on_rerun(tmp_path):
             "args": {"marks": "overall_marks.csv", "output": "upload.zip"}}
     assert step_kind(step) == "poliformat_zip"
     assert any("PoliformaT" in w for w in rerun_warnings(step, tmp_path))
+
+
+def test_review_config_from_the_course_record(tmp_path):
+    from ptestgen.course_review import review_config
+
+    (tmp_path / "exam" / "out").mkdir(parents=True)
+    (tmp_path / "exam" / "corr").mkdir()
+    (tmp_path / "exam" / "open").mkdir()
+    (tmp_path / "exam" / "Tarea_20260101.zip").write_bytes(b"")
+    steps = {
+        "correct": {"command": "ptestgen correct pexams", "cwd": "exam", "positional": ["e.md"],
+                    "args": {"input_path": ["scans"], "exam_dir": "out", "output_dir": "corr", "penalty": 0.25}},
+        "analysis": {"command": "ptestgen correct pexams", "cwd": "exam", "positional": ["e.md"],
+                     "args": {"exam_dir": "out", "output_dir": "corr", "only_analysis": True, "void_questions_nicely": "11"}},
+        "grade_open": {"command": "pevaluate exam-open", "cwd": "exam",
+                       "args": {"index_csv": "corr/open_responses_index.csv", "exam_dir": "out", "output_dir": "open",
+                                "mc_correction_dir": "corr", "void_questions_nicely": "26", "lang": "es"}},
+        "publish": {"command": "pevaluate poliformat-zip", "cwd": "exam", "positional": ["Tarea_20260101.zip"],
+                    "args": {"marks": "open/overall_marks.csv", "output": "subir.zip"}},
+    }
+    path = _write_course(tmp_path, steps)
+    cfg = review_config(path, "P1")
+    assert cfg.mc_dir.endswith("corr") and cfg.open_dir.endswith("open") and cfg.exam_dir.endswith("out")
+    assert cfg.penalty == 0.25 and cfg.mc_void_nicely == ["11"] and cfg.open_void_nicely == ["26"]
+    assert cfg.roster.endswith("Tarea_20260101.zip")  # the assignment's download is its class list
+    # Rebuilding never reruns the step that reads the scans.
+    assert [(a.id, a.description) for a in cfg.rebuild_actions] == [
+        ("marks", "P1.analysis → P1.grade_open (no LLM calls)"), ("upload", "P1.publish")]
+
+
+def test_review_parts_and_chained_upload(tmp_path):
+    from ptestgen.course_review import review_configs, review_parts
+
+    for folder in ("exam/out", "exam/corr", "exam/open", "lab/feedback"):
+        (tmp_path / folder).mkdir(parents=True)
+    steps = {
+        "correct": {"command": "ptestgen correct pexams", "cwd": "exam", "args": {"exam_dir": "out", "output_dir": "corr"}},
+        "grade_open": {"command": "pevaluate exam-open", "cwd": "exam",
+                       "args": {"index_csv": "corr/i.csv", "exam_dir": "out", "output_dir": "open", "mc_correction_dir": "corr"}},
+        "grade_lab": {"command": "pevaluate", "cwd": "lab", "positional": ["."], "args": {"rubric": "rubric.txt"}},
+        "combine": {"command": "pevaluate combine-marks", "cwd": ".", "args": {"lab_feedback": "lab/feedback", "output": "notas.csv"}},
+    }
+    path = _write_course(tmp_path, steps)
+    assert review_parts(path, "P1") == ["exam", "lab"]
+    parts = review_configs(path, "P1")
+    assert [(p, label) for p, label, _ in parts] == [("exam", "Examen (hoja impresa)"), ("lab", "Prácticas")]  # the course language (default es)
+    exam_cfg, lab_cfg = parts[0][2], parts[1][2]
+    assert exam_cfg.open_dir.endswith("open") and not exam_cfg.feedback_dir
+    assert lab_cfg.feedback_dir.endswith("feedback") and not lab_cfg.open_dir
+    # The upload files are rebuilt after the marks of every part, from either part.
+    upload = {a.id: a for a in lab_cfg.rebuild_actions}["upload"]
+    assert upload.description == "P1.grade_open → P1.combine"

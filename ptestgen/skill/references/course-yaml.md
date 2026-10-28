@@ -11,6 +11,7 @@ One file per course, in the course's private folder. It says exactly how the too
 | `ptestgen course show [A.S]` | Overview of all steps (done / not run / locked), or the exact command, output and rerun warnings of one step. |
 | `ptestgen course run A.S [--dry-run] [--yes] [--unlock]` | Runs a step from its folder with the `.env` loaded. Refuses locked steps, and steps whose rerun overwrites something unless `--yes` (ask the teacher first). Records `last_run`. |
 | `ptestgen course metrics [A.S] [--write]` | From each step's artifacts: model and versions, LLM calls, tokens, cost, latency, fallbacks, students, marks. |
+| `ptestgen course review A [--part exam\|free\|lab] [--port N] [--no-browser] [--keep-open]` | Opens the review app of assessment `A` (an assessment with several parts — scanned exam, blank-paper exam, lab submissions — shows a part selector; `--part` chooses the first one shown) (pevaluate) with its folders, class list (`roster.file`, or the assignment's PoliformaT download), penalty and voided questions, and buttons that rerun its analysis/grading steps (no scan reading, no LLM) and its upload steps; every saved edit is written to the record (`edits`) at once. Run it in the background and give the teacher the URL; it stops by itself when they close the page (`--keep-open` to keep it). |
 | `ptestgen course edits [A.S] [--write]` | Where the final grade differs from the model's (open answers, submissions) and where the ID read from a scan was corrected. Only the differences are stored. |
 
 All commands find the file in the current folder or its parents (`--path` to give it).
@@ -32,13 +33,14 @@ models:
 policy:                                      # free-form, in words or keys
   final_mark: 0.3 notebook + 0.7 exam; a missing part counts 0
   notebooks: graded on code completeness only; discussion questions voluntary
-roster: {file: gradebook.xlsx, id_column: "ID number", name_column: Name, mark_column: Mark, feedback_column: Feedback}
+roster: {file: lista_clase.csv, id_column: id, name_column: name}   # in the course folder; `pevaluate roster <export> --output lista_clase.csv`
 prices: {}                                   # optional: model: [input, output, cache_read] USD per million tokens
 assessments:
   P1:
     title: Lab 1 quiz
     date: 2026-10-01
     status: published                        # draft | printed | graded | published
+    weight: 10% of the course                # optional, informative only: what this assessment is worth
     questions: P1/exam/exam_P1.md
     students: 30
     decisions:

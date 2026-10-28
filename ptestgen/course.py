@@ -448,6 +448,18 @@ def load_env_file(path: Path) -> dict:
     return {k: (v or "").strip().strip("\"'") for k, v in dotenv_values(path).items()}
 
 
+def step_environment(data, base: Path) -> dict:
+    """The environment of a step: the .env variables (API keys) and the tools' bin folder first in PATH."""
+    env = dict(os.environ)
+    env_file = (data.get("environment") or {}).get("env_file")
+    if env_file and (base / str(env_file)).exists():
+        env.update(load_env_file(base / str(env_file)))
+    bin_dir = (data.get("environment") or {}).get("bin")
+    if bin_dir:
+        env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+    return env
+
+
 def run_step(path: Path, data, ref: str, yes: bool = False, unlock: bool = False, dry_run: bool = False) -> int:
     base = path.parent
     _, _, step = get_step(data, ref)
@@ -465,14 +477,7 @@ def run_step(path: Path, data, ref: str, yes: bool = False, unlock: bool = False
     print(f"cd {shlex.quote(str(cwd))} && {shlex.join(argv)}")
     if dry_run:
         return 0
-    env = dict(os.environ)
-    env_file = (data.get("environment") or {}).get("env_file")
-    if env_file and (base / str(env_file)).exists():
-        env.update(load_env_file(base / str(env_file)))
-    bin_dir = (data.get("environment") or {}).get("bin")
-    if bin_dir:
-        env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
-    code = subprocess.run(argv, cwd=cwd, env=env).returncode
+    code = subprocess.run(argv, cwd=cwd, env=step_environment(data, base)).returncode
     step["last_run"] = {"utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "exit_code": code}
     save(path, data)
     return code
@@ -510,6 +515,7 @@ assessments: {{}}
 #     title: Lab 1 quiz
 #     date: 2026-10-01
 #     status: draft      # draft | printed | graded | published
+#     weight: 10% of the course   # optional, informative only
 #     questions: P1/examen/examen_P1.md
 #     students: 30
 #     decisions:
@@ -545,7 +551,8 @@ def _print_overview(data, base: Path) -> None:
     print(f"{(data.get('course') or {}).get('name')}  [{data.get('schema')}]")
     for assessment_id, assessment in (data.get("assessments") or {}).items():
         assessment = assessment or {}
-        print(f"\n{assessment_id}: {assessment.get('title', '')}  status={assessment.get('status', '')}")
+        weight = f"  weight={assessment['weight']}" if assessment.get("weight") else ""
+        print(f"\n{assessment_id}: {assessment.get('title', '')}  status={assessment.get('status', '')}{weight}")
         for step_id, step in (assessment.get("steps") or {}).items():
             out = step_output(step, base)
             state = "done" if out is not None and out.exists() else "not run"
@@ -585,6 +592,10 @@ def handle_course(args) -> int:
         else:
             _print_overview(data, base)
         return 0
+    if args.course_command == "review":
+        from .course_review import review
+        return review(path, args.assessment, part=args.part, port=args.port, open_browser=not args.no_browser,
+                      keep_open=args.keep_open)
     if args.course_command == "run":
         return run_step(path, data, args.step, yes=args.yes, unlock=args.unlock, dry_run=args.dry_run)
     if args.course_command in ("metrics", "edits"):
@@ -619,7 +630,8 @@ def add_parser(subparsers, parents) -> None:
                             ("show", "Overview of all steps, or the exact command of one (ASSESSMENT.STEP)."),
                             ("metrics", "Compute LLM calls, tokens, cost and marks from each step's artifacts."),
                             ("edits", "List where the teacher changed the model's grade or the ID read from a scan."),
-                            ("run", "Run one step (ASSESSMENT.STEP) with the .env loaded, refusing locked steps.")):
+                            ("run", "Run one step (ASSESSMENT.STEP) with the .env loaded, refusing locked steps."),
+                            ("review", "Open the review app of an assessment: edit grades, answers and students, rebuild marks and PDFs.")):
         p = sub.add_parser(name, help=help_text)
         if name in ("show", "metrics", "edits"):
             p.add_argument("step", nargs="?", help="ASSESSMENT.STEP (default: all).")
@@ -628,6 +640,13 @@ def add_parser(subparsers, parents) -> None:
             p.add_argument("--yes", action="store_true", help="Run although outputs would be overwritten.")
             p.add_argument("--unlock", action="store_true", help="Run a locked step.")
             p.add_argument("--dry-run", action="store_true", help="Print the command only.")
+        if name == "review":
+            p.add_argument("assessment", help="ASSESSMENT (e.g. P1).")
+            p.add_argument("--part", choices=["exam", "free", "lab"], help="When the assessment has several: the scanned exam, "
+                                                                          "the blank-paper exam or the lab submissions (default: the first).")
+            p.add_argument("--port", type=int, default=0, help="Port on 127.0.0.1 (default: any free port).")
+            p.add_argument("--no-browser", action="store_true", help="Print the URL without opening the browser.")
+            p.add_argument("--keep-open", action="store_true", help="Keep the server running when the page is closed (default: it stops).")
         if name in ("metrics", "edits"):
             p.add_argument("--write", action="store_true", help="Store the result in the step (`metrics:`/`edits:`).")
         p.add_argument("--path", help=f"Course file or folder (default: the {FILE_NAME} in this folder or above).")

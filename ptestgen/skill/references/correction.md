@@ -102,6 +102,7 @@ pevaluate poliformat-zip "Tarea_20260101120000.zip" --marks correction/open/over
 ```
 
 - The download has `<assignment>/grades.xls` (or `.csv`: `Identificador, ID, Apellido, Nombre, Calificación, ...`) and one folder per student, `Apellido, Nombre(ID)` (no accents), with `comments.txt` (the teacher's comment), `feedbackText.html`, `..._submissionText.html`, `Adjuntos al comentario/` (feedback attachments) and `Adjuntos de la entrega/`. It is also the class list: use it to identify the exams (the ID is usually the DNI without letter).
+- `comments.txt` is shown by PoliformaT as HTML: `poliformat-zip` writes the comment as HTML paragraphs (line breaks and **bold** kept), so feedback with several lines reads as written.
 - Grades: two decimals with a decimal comma (`--decimal-sep`). Comment: "Nota: X sobre 10. La corrección de cada pregunta está en el PDF adjunto." (`--lang`, or `--comment "... {mark} ..."`); the PDF `student_feedback_pdfs/<student_id>.pdf` goes to `Adjuntos al comentario/`.
 - Students are matched by ID (the ID read from the exam contains the PoliformaT one), then by name. Show the teacher the printed table, especially matches by name, students left ungraded (absent?) and marks without a student. Keep the zip under 200 MB.
 - The PDFs carry the name read from the exam (it may be cut or end in `?`). With the download in hand, offer to put the PoliformaT names in `student_name` of `correction_results.csv` (keep `ocr_student_name`), then rerun `correct pexams --only-analysis` (it copies ids and names into `open_responses_index.csv`), `exam-open` (cached, no LLM calls) and `poliformat-zip`.
@@ -116,6 +117,8 @@ Tell the teacher, with these pictures if useful:
   ![Subir todo](https://raw.githubusercontent.com/OscarPellicer/pevaluate/refs/heads/main/media/poliformat_subir_todo.png)
 
 ## Editing and rerunning
+
+The teacher can make all the edits below in the review app (`ptestgen course review A`, or `pevaluate review <results folder>`): it writes the same fields, refuses to save over a file changed since it was loaded (so do not edit the same files while it is open without telling the teacher to reload), keeps the reviewed ticks in `review_state.json`, and its Rebuild buttons run the steps in the last column. Rubric changes, voiding questions and regrading stay with you.
 
 | To change | Edit | Then |
 |---|---|---|
