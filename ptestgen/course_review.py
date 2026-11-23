@@ -216,10 +216,17 @@ def _actions(path: Path, cfg, assessment_id: str, analysis, grading, lab, publis
 
 
 def review(path: Path, assessment_id: str, part: Optional[str] = None, port: int = 0, open_browser: bool = True,
-           keep_open: bool = False) -> int:
+           keep_open: bool = False, lang: Optional[str] = None) -> int:
+    """``lang`` (es/en): the app's default language instead of the course's; the page can still
+    switch it (and remembers that choice)."""
     from autocorrect.review.server import serve
 
     parts = review_configs(path, assessment_id)
+    if lang:
+        labels = PART_LABELS.get(lang, PART_LABELS["en"])
+        for _, _, cfg in parts:
+            cfg.lang = lang
+        parts = [(p, labels.get(p, label), cfg) for p, label, cfg in parts]
     if part and part not in [p for p, _, _ in parts]:
         raise ValueError(f"{assessment_id} has no '{part}' part. Parts: {', '.join(p for p, _, _ in parts)}")
     serve(parts=parts, initial=part, port=port, open_browser=open_browser, keep_open=keep_open)

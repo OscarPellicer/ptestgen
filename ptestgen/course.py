@@ -626,7 +626,7 @@ def handle_course(args) -> int:
     if args.course_command == "review":
         from .course_review import review
         return review(path, args.assessment, part=args.part, port=args.port, open_browser=not args.no_browser,
-                      keep_open=args.keep_open)
+                      keep_open=args.keep_open, lang=args.lang)
     if args.course_command == "run":
         return run_step(path, data, args.step, yes=args.yes, unlock=args.unlock, dry_run=args.dry_run)
     if args.course_command in ("metrics", "edits"):
@@ -678,6 +678,8 @@ def add_parser(subparsers, parents) -> None:
             p.add_argument("--port", type=int, default=0, help="Port on 127.0.0.1 (default: any free port).")
             p.add_argument("--no-browser", action="store_true", help="Print the URL without opening the browser.")
             p.add_argument("--keep-open", action="store_true", help="Keep the server running when the page is closed (default: it stops).")
+            p.add_argument("--lang", choices=["es", "en"], help="Language of the app (default: the course's first language). "
+                                                                "The page has a selector too, and remembers the choice.")
         if name in ("metrics", "edits"):
             p.add_argument("--write", action="store_true", help="Store the result in the step (`metrics:`/`edits:`).")
         p.add_argument("--path", help=f"Course file or folder (default: the {FILE_NAME} in this folder or above).")
