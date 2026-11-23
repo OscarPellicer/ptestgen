@@ -18,6 +18,7 @@ import shlex
 import subprocess
 import sys
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
@@ -81,6 +82,37 @@ def save(path: Path, data) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         _yaml().dump(data, f)
     os.replace(tmp, path)
+
+
+@contextmanager
+def _locked(path: Path):
+    """Exclusive lock on ``<path>.lock`` so concurrent writers don't interleave."""
+    lock = path.with_suffix(path.suffix + ".lock")
+    with open(lock, "w") as f:
+        try:
+            import fcntl
+            fcntl.flock(f, fcntl.LOCK_EX)
+        except ImportError:  # Windows: no advisory lock, the reload below still avoids stale data
+            pass
+        yield
+
+
+def update(path: Path, change) -> None:
+    """Reload the file from disk, apply ``change(data)`` and save, under a lock.
+
+    Use this instead of ``save(path, data)`` when ``data`` was loaded before a long
+    command: other runs (or the agent) may have edited the file meanwhile, and saving the
+    old copy would silently drop their changes."""
+    with _locked(path):
+        data = load(path)
+        change(data)
+        save(path, data)
+
+
+def record_run(path: Path, ref: str, code: int) -> None:
+    """Store ``last_run`` for step ``ref`` in the current version of the file."""
+    stamp = {"utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "exit_code": code}
+    update(path, lambda data: get_step(data, ref)[2].__setitem__("last_run", stamp))
 
 
 # --- Steps -------------------------------------------------------------------------------
@@ -478,8 +510,7 @@ def run_step(path: Path, data, ref: str, yes: bool = False, unlock: bool = False
     if dry_run:
         return 0
     code = subprocess.run(argv, cwd=cwd, env=step_environment(data, base)).returncode
-    step["last_run"] = {"utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "exit_code": code}
-    save(path, data)
+    record_run(path, ref, code)
     return code
 
 

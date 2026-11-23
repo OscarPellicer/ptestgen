@@ -71,6 +71,23 @@ def test_run_loads_env_without_printing_it(tmp_path, capfd):
     assert course.load(path)["assessments"]["P1"]["steps"]["check"]["last_run"]["exit_code"] == 0
 
 
+def test_run_keeps_edits_made_to_the_record_while_it_runs(tmp_path):
+    import sys
+    path = _write_course(tmp_path, {"slow": {"command": "x"}})
+    data = course.load(path)
+    # The command itself edits the record, as the agent or a parallel run would meanwhile.
+    script = tmp_path / "edit.py"
+    script.write_text(
+        "import sys; from ptestgen import course\n"
+        "p = course.find_course_file('.'); d = course.load(p)\n"
+        "d['assessments']['P1']['decisions'] = ['added during the run']\n"
+        "course.save(p, d)\n")
+    data["assessments"]["P1"]["steps"]["slow"]["command"] = f"{sys.executable} edit.py"
+    assert course.run_step(path, data, "P1.slow", yes=True) == 0
+    after = course.load(path)["assessments"]["P1"]
+    assert after["decisions"] == ["added during the run"]
+    assert after["steps"]["slow"]["last_run"]["exit_code"] == 0
+
 def _exam_open_output(folder):
     folder.mkdir(parents=True)
     grader = {"model": "claude-opus-5-5", "effort": "medium"}

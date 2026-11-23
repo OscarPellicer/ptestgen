@@ -10,11 +10,10 @@ the steps that build the files to upload. Afterwards the teacher's edits go to t
 from __future__ import annotations
 
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .course import (get_step, load, render_args, save, step_cwd, step_edits, step_environment, step_kind,
+from .course import (get_step, load, record_run, render_args, update, step_cwd, step_edits, step_environment, step_kind,
                      step_output)
 
 PUBLISH_KINDS = ("combine", "moodle_csv", "poliformat_zip")
@@ -160,19 +159,18 @@ def _run(path: Path, ref: str) -> tuple[bool, str]:
         return False, f"{ref} is locked (printed or published): not run."
     argv = render_args(step)
     result = subprocess.run(argv, cwd=step_cwd(step, base), env=step_environment(data, base), capture_output=True, text=True)
-    step["last_run"] = {"utc": datetime.now(timezone.utc).isoformat(timespec="seconds"), "exit_code": result.returncode}
-    save(path, data)
+    record_run(path, ref, result.returncode)
     return result.returncode == 0, f"$ {' '.join(argv)}\n{(result.stdout + result.stderr)[-4000:]}"
 
 
 def _record_edits(path: Path, refs: list[str]) -> None:
-    data = load(path)
-    for ref in refs:
-        _, _, step = get_step(data, ref)
-        result = step_edits(step, path.parent)
-        if result is not None:
-            step["edits"] = result
-    save(path, data)
+    def change(data):
+        for ref in refs:
+            _, _, step = get_step(data, ref)
+            result = step_edits(step, path.parent)
+            if result is not None:
+                step["edits"] = result
+    update(path, change)
 
 
 def _actions(path: Path, cfg, assessment_id: str, analysis, grading, lab, publish) -> list:
